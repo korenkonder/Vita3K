@@ -17,9 +17,10 @@
 
 #pragma once
 
+#include <gxm/functions.h>
 #include <gxm/types.h>
-#include <shader/usse_translator_types.h>
-#include <shader/usse_types.h>
+#include <shader/translator_types.h>
+#include <shader/types.h>
 
 namespace shader {
 

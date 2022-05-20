@@ -1,5 +1,5 @@
 // Vita3K emulator project
-// Copyright (C) 2023 Vita3K team
+// Copyright (C) 2021 Vita3K team
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,12 +15,10 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include <gtest/gtest.h>
-#include <shader/program_analyzer.h>
+#pragma once
 
-#include <unordered_map>
-
-using namespace shader;
-
-TEST(program_analyzer, simple_branching) {
-}
+namespace shader::usse::glsl {
+static const char *VERTEX_UB_GROUP_NAME = "vertexData";
+static const char *FRAGMENT_UB_GROUP_NAME = "fragmentData";
+static const char *UB_MEMBER_NAME_FORMAT = "buffer";
+} // namespace shader::usse::glsl

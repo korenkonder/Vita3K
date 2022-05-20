@@ -18,19 +18,15 @@
 #pragma once
 
 #include <gxm/types.h>
+#include <shader/translator_types.h>
+#include <shader/types.h>
 #include <shader/uniform_block.h>
-#include <shader/usse_translator_types.h>
-#include <shader/usse_types.h>
 
 #include <features/state.h>
 
 #include <string>
 #include <utility>
 #include <vector>
-
-namespace spv {
-class Builder;
-}
 
 namespace shader {
 
@@ -67,11 +63,9 @@ struct GeneratedShader {
     usse::SpirvCode spirv;
 };
 
-// Dump generated SPIR-V disassembly up to this point
-void spirv_disasm_print(const usse::SpirvCode &spirv_binary, std::string *spirv_dump = nullptr);
-
 // the returned object will only have its glsl or spirv field non-empty depending on the target
-GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate = false,
+GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features,
+    const Target target, const Hints &hints, bool maskupdate = false,
     bool force_shader_debug = false, std::function<bool(const std::string &ext, const std::string &dump)> dumper = nullptr);
 
 void convert_gxp_to_glsl_from_filepath(const std::string &shader_filepath);

@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <shader/usse_types.h>
+#include <shader/types.h>
 
 #include <map>
-#include <unordered_map>
 #include <vector>
 
 namespace spv {
