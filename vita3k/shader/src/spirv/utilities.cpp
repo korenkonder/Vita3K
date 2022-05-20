@@ -15,10 +15,10 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include <shader/spirv_recompiler.h>
-#include <shader/usse_constant_table.h>
-#include <shader/usse_program_analyzer.h>
-#include <shader/usse_utilities.h>
+#include <shader/constant_table.h>
+#include <shader/program_analyzer.h>
+#include <shader/recompiler.h>
+#include <shader/spirv/utilities.h>
 
 #include <util/bit_cast.h>
 #include <util/float_to_half.h>
@@ -127,13 +127,6 @@ spv::Id finalize(spv::Builder &b, spv::Id first, spv::Id second, const Swizzle4 
     return b.createCompositeConstruct(b.makeVectorType(target_type, static_cast<int>(ops.size())), ops);
 }
 
-size_t dest_mask_to_comp_count(shader::usse::Imm4 dest_mask) {
-    std::bitset<4> bs(dest_mask);
-    const auto bit_count = bs.count();
-    assert(bit_count <= 4 && bit_count > 0);
-    return bit_count;
-}
-
 spv::Id create_access_chain(spv::Builder &b, const spv::StorageClass storage_class, const spv::Id base, const std::vector<spv::Id> &offsets) {
     spv::Builder::AccessChain access_chain{};
     access_chain.base = base;
@@ -142,7 +135,7 @@ spv::Id create_access_chain(spv::Builder &b, const spv::StorageClass storage_cla
     return b.createAccessChain(storage_class, base, offsets);
 }
 
-static const SpirvVarRegBank *get_reg_bank(const shader::usse::SpirvShaderParameters &params, shader::usse::RegisterBank reg_bank) {
+static const shader::usse::SpirvVarRegBank *get_reg_bank(const shader::usse::SpirvShaderParameters &params, shader::usse::RegisterBank reg_bank) {
     switch (reg_bank) {
     case RegisterBank::PRIMATTR:
         return &params.ins;
@@ -260,6 +253,7 @@ static spv::Function *make_unpack_func(spv::Builder &b, const FeatureState &feat
     spv::Function *unpack_func = b.makeFunctionEntry(
         spv::NoPrecision, output_type, func_name.c_str(), { type_f32 }, { "to_unpack" },
         decorations, &unpack_func_block);
+
     spv::Id extracted = unpack_func->getParamId(0);
 
     const spv::Id result_type = is_signed ? type_i32 : type_ui32;
@@ -423,7 +417,8 @@ static spv::Function *make_fetch_memory_func_for_array(spv::Builder &b, spv::Id 
 
     const std::string func_name = fmt::format("fetchMemoryForBuffer{}Base{}", buffer_index, info.base);
 
-    spv::Function *fetch_func = b.makeFunctionEntry(spv::NoPrecision, type_f32, func_name.c_str(), { type_i32 }, { "addr" },
+    spv::Function *fetch_func = b.makeFunctionEntry(
+        spv::NoPrecision, type_f32, func_name.c_str(), { type_i32 }, { "addr" },
         {}, &func_block);
 
     spv::Id sixteen_cst = b.makeIntConstant(16);
@@ -479,7 +474,8 @@ static spv::Function *make_fetch_memory_func(spv::Builder &b, const SpirvShaderP
     spv::Block *func_block;
     spv::Block *last_build_point = b.getBuildPoint();
 
-    spv::Function *fetch_func = b.makeFunctionEntry(spv::NoPrecision, type_f32, "fetchMemory", { type_i32 }, { "addr" },
+    spv::Function *fetch_func = b.makeFunctionEntry(
+        spv::NoPrecision, type_f32, "fetchMemory", { type_i32 }, { "addr" },
         {}, &func_block);
     spv::Id addr = fetch_func->getParamId(0);
 
@@ -527,14 +523,14 @@ spv::Id fetch_memory(spv::Builder &b, const SpirvShaderParameters &params, Spirv
     return b.createFunctionCall(utils.fetch_memory, { addr });
 }
 
-static spv::Id make_or_get_buffer_ptr(spv::Builder &b, shader::usse::utils::SpirvUtilFunctions &utils, int nb_components, int stride = 16, bool is_write = false) {
+static spv::Id make_or_get_buffer_ptr(spv::Builder &b, SpirvUtilFunctions &utils, int nb_components, int stride = 16, bool is_write = false) {
     const int buffer_utils_idx = (stride == 4) ? 0 : nb_components;
 
     if (utils.buffer_address_vec[buffer_utils_idx][is_write])
         return utils.buffer_address_vec[buffer_utils_idx][is_write];
 
     const spv::Id f32 = b.makeFloatType(32);
-    const spv::Id vec = shader::usse::utils::make_vector_or_scalar_type(b, f32, nb_components);
+    const spv::Id vec = make_vector_or_scalar_type(b, f32, nb_components);
     const spv::Id runtime_array = b.makeRuntimeArray(vec);
     // always a stride of 16, even if the array size is less
     b.addDecoration(runtime_array, spv::DecorationArrayStride, stride);
@@ -1196,7 +1192,6 @@ void store(spv::Builder &b, const SpirvShaderParameters &params, SpirvUtilFuncti
                 std::vector<spv::Id> ops{ source };
                 source = b.createOp(spv::OpBitcast, b.makeIntType(32), ops);
             }
-
             // if dest is a 8 or 16 bits integer
             // Todo: keep the content of the upper bits of idx (not done right now)
             if (!is_float_data_type(dest.type) && get_data_type_size(dest.type) < 4) {
@@ -1470,7 +1465,8 @@ spv::Id convert_to_float(spv::Builder &b, const SpirvUtilFunctions &utils, spv::
     }
 
     if (normal) {
-        const float normalizer = b.makeFloatConstant(get_int_normalize_range_constants(type));
+        const float constant_range = get_int_normalize_range_constants(type);
+        const float normalizer = b.makeFloatConstant(constant_range);
         const spv::Id normalizer_vec = create_constant_vector_or_scalar(b, normalizer, comp_count);
 
         opr = b.createBinOp(spv::OpFDiv, target_type, opr, normalizer_vec);

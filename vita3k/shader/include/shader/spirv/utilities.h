@@ -18,8 +18,9 @@
 #pragma once
 
 #include <SPIRV/SpvBuilder.h>
-#include <shader/usse_translator_types.h>
-#include <shader/usse_types.h>
+#include <shader/program_analyzer.h>
+#include <shader/translator_types.h>
+#include <shader/types.h>
 
 struct FeatureState;
 
@@ -60,8 +61,6 @@ spv::Id convert_to_float(spv::Builder &b, const SpirvUtilFunctions &utils, spv::
 spv::Id convert_to_int(spv::Builder &b, const SpirvUtilFunctions &utils, spv::Id opr, DataType type, bool normal);
 
 spv::Id add_uvec2_uint(spv::Builder &b, spv::Id vec, spv::Id to_add);
-
-size_t dest_mask_to_comp_count(shader::usse::Imm4 dest_mask);
 
 spv::Id create_access_chain(spv::Builder &b, const spv::StorageClass storage_class, const spv::Id base, const std::vector<spv::Id> &offsets);
 

@@ -1,5 +1,5 @@
 // Vita3K emulator project
-// Copyright (C) 2025 Vita3K team
+// Copyright (C) 2024 Vita3K team
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,19 +17,18 @@
 
 #pragma once
 
-#include <gxm/functions.h>
-#include <gxm/types.h>
+#include <shader/recompiler.h>
 #include <shader/translator_types.h>
-#include <shader/types.h>
 
-#include <tuple>
+#include <string>
+#include <vector>
+
+struct SceGxmProgram;
 
 namespace shader {
+// Dump generated SPIR-V disassembly up to this point
+void spirv_disasm_print(const usse::SpirvCode &spirv_binary, std::string *spirv_dump = nullptr);
 
-usse::GenericType translate_generic_type(const gxp::GenericParameterType &type);
-std::tuple<usse::DataType, std::string> get_parameter_type_store_and_name(const SceGxmParameterType &type);
-usse::ProgramInput get_program_input(const SceGxmProgram &program);
-usse::DataType get_texture_component_type(SceGxmTextureFormat format);
-uint8_t get_texture_component_count(SceGxmTextureFormat format);
-
+GeneratedShader convert_gxp_to_spirv(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
+    bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper);
 } // namespace shader

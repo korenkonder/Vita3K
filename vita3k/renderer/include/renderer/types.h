@@ -20,8 +20,8 @@
 #include <gxm/types.h>
 #include <renderer/commands.h>
 #include <renderer/gxm_types.h>
-#include <shader/spirv_recompiler.h>
-#include <shader/usse_program_analyzer.h>
+#include <shader/program_analyzer.h>
+#include <shader/recompiler.h>
 #include <util/hash.h>
 
 #include <array>

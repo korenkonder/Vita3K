@@ -1,5 +1,5 @@
 // Vita3K emulator project
-// Copyright (C) 2025 Vita3K team
+// Copyright (C) 2024 Vita3K team
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,19 +17,8 @@
 
 #pragma once
 
-#include <gxm/functions.h>
-#include <gxm/types.h>
-#include <shader/translator_types.h>
-#include <shader/types.h>
-
-#include <tuple>
-
-namespace shader {
-
-usse::GenericType translate_generic_type(const gxp::GenericParameterType &type);
-std::tuple<usse::DataType, std::string> get_parameter_type_store_and_name(const SceGxmParameterType &type);
-usse::ProgramInput get_program_input(const SceGxmProgram &program);
-usse::DataType get_texture_component_type(SceGxmTextureFormat format);
-uint8_t get_texture_component_count(SceGxmTextureFormat format);
-
-} // namespace shader
+namespace shader::usse::glsl {
+static const char *VERTEX_UB_GROUP_NAME = "vertexData";
+static const char *FRAGMENT_UB_GROUP_NAME = "fragmentData";
+static const char *UB_MEMBER_NAME_FORMAT = "buffer";
+} // namespace shader::usse::glsl

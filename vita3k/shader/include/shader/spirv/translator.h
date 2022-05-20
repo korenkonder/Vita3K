@@ -1,5 +1,5 @@
 // Vita3K emulator project
-// Copyright (C) 2025 Vita3K team
+// Copyright (C) 2024 Vita3K team
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,12 +18,15 @@
 #pragma once
 
 #include <gxm/types.h>
-#include <shader/spirv_recompiler.h>
-#include <shader/usse_program_analyzer.h>
-#include <shader/usse_translator_types.h>
-#include <shader/usse_utilities.h>
+#include <shader/program_analyzer.h>
+#include <shader/spirv/utilities.h>
+#include <shader/translator.h>
+#include <shader/translator_types.h>
 
 #include <SPIRV/SpvBuilder.h>
+
+#include <array>
+#include <map>
 
 struct FeatureState;
 
@@ -31,10 +34,8 @@ namespace shader::usse {
 
 struct USSERecompiler;
 
-class USSETranslatorVisitor final {
+class USSETranslatorVisitorSpirv : public USSETranslatorVisitor {
 public:
-    using instruction_return_type = bool;
-
     spv::Id std_builtins;
 
     spv::Id type_f32;
@@ -50,29 +51,19 @@ public:
     spv::Id out;
     spv::Id frag_depth_id = 0;
 
-    // Contains repeat increasement offset
-    int repeat_increase[4][17];
-    int repeat_multiplier[4];
-
     void do_texture_queries(const NonDependentTextureQueryCallInfos &texture_queries);
     // extra1 is either lod or ddx, extra2 is ddy
-    spv::Id do_fetch_texture(const spv::Id tex, const int texture_index, const int dim, const Coord &coord, const DataType dest_type, const int lod_mode,
+    spv::Id do_fetch_texture(const spv::Id tex, int texture_index, const int dim, const Coord &coord, const DataType dest_type, const int lod_mode,
         const spv::Id extra1 = spv::NoResult, const spv::Id extra2 = spv::NoResult, const int gather4_comp = -1);
 
-    USSETranslatorVisitor() = delete;
-    explicit USSETranslatorVisitor(spv::Builder &_b, USSERecompiler &_recompiler, const SceGxmProgram &program, const FeatureState &features,
+    USSETranslatorVisitorSpirv() = delete;
+    explicit USSETranslatorVisitorSpirv(spv::Builder &_b, USSERecompiler &_recompiler, const SceGxmProgram &program, const FeatureState &features,
         utils::SpirvUtilFunctions &utils, const uint64_t &_instr, const SpirvShaderParameters &spirv_params, const NonDependentTextureQueryCallInfos &queries,
         bool is_secondary_program = false)
-        : m_util_funcs(utils)
-        , m_second_program(is_secondary_program)
+        : USSETranslatorVisitor(_recompiler, program, features, _instr, is_secondary_program)
+        , m_util_funcs(utils)
         , m_b(_b)
-        , m_instr(_instr)
-        , m_spirv_params(spirv_params)
-        , m_recompiler(_recompiler)
-        , m_program(program)
-        , m_features(features) {
-        reset_for_new_session();
-
+        , m_spirv_params(spirv_params) {
         out = spv::NoResult;
 
         // Set main block
@@ -95,7 +86,6 @@ public:
             type_f32_v[i] = m_b.makeVectorType(type_f32, i);
 
             std::vector<spv::Id> consts;
-
             for (std::uint8_t j = 1; j < i + 1; j++) {
                 consts.push_back(const_f32[0]);
             }
@@ -114,100 +104,13 @@ public:
      */
     spv::Id load(Operand op, const Imm4 dest_mask, int shift_offset = 0);
 
-    void reset_for_new_session() {
-        reset_repeat_multiplier();
-        reset_repeat_increase();
-    }
-
 private:
-    //
-    // Translation helpers
-    //
-
-#define BEGIN_REPEAT(repeat_count)                           \
-    const auto repeat_count_num = (uint8_t)repeat_count + 1; \
-    for (auto current_repeat = 0; current_repeat < repeat_count_num; current_repeat++) {
-#define END_REPEAT() }
-
-#define GET_REPEAT(inst, repeat_mode)                                                                                            \
-    [[maybe_unused]] int dest_repeat_offset = get_repeat_offset(inst.opr.dest, current_repeat, repeat_mode, inst.opr.dest.bank); \
-    [[maybe_unused]] int src0_repeat_offset = get_repeat_offset(inst.opr.src0, current_repeat, repeat_mode, inst.opr.src0.bank); \
-    [[maybe_unused]] int src1_repeat_offset = get_repeat_offset(inst.opr.src1, current_repeat, repeat_mode, inst.opr.src1.bank); \
-    [[maybe_unused]] int src2_repeat_offset = get_repeat_offset(inst.opr.src2, current_repeat, repeat_mode, inst.opr.src2.bank);
-
-    const int get_repeat_offset(Operand &op, const std::uint8_t repeat_index, RepeatMode repeat_mode, RegisterBank bank) {
-        if (repeat_mode == RepeatMode::INTERNAL || repeat_mode == RepeatMode::BOTH) {
-            if (bank == RegisterBank::FPINTERNAL) {
-                return repeat_index;
-            }
-        }
-        // GPI operand can only get repeat offset with INTERNAL/BOTH repeat mode.
-        // Intentionally put this here so that INTERNAL/BOTH is checked with every FPINTERNAL, even if not GPI.
-        if (op.flags & RegisterFlags::GPI) {
-            return 0;
-        }
-        if (repeat_mode == RepeatMode::BOTH) {
-            if (bank == RegisterBank::FPINTERNAL) {
-                return repeat_index;
-            } else {
-                return repeat_index * 4;
-            }
-        }
-        if (repeat_mode == RepeatMode::EXTERNAL && bank != RegisterBank::FPINTERNAL) {
-            return repeat_index * 4;
-        }
-        if (repeat_mode == RepeatMode::SLMSI) {
-            auto inc = repeat_increase[op.index][repeat_index];
-
-            if (((bank >= RegisterBank::TEMP) && (bank <= RegisterBank::SECATTR))
-                || bank == RegisterBank::PREDICATE
-                || bank == RegisterBank::INDEXED1
-                || bank == RegisterBank::INDEXED2)
-                inc *= repeat_multiplier[op.index];
-
-            return inc;
-        }
-        return 0;
-    }
-
-    void set_repeat_multiplier(const int p0, const int p1, const int p2, const int p3) {
-        repeat_multiplier[0] = p0;
-        repeat_multiplier[1] = p1;
-        repeat_multiplier[2] = p2;
-        repeat_multiplier[3] = p3;
-    }
-
-    void reset_repeat_multiplier() {
-        std::fill(repeat_multiplier, repeat_multiplier + 4, 2);
-    }
-
-    void reset_repeat_increase() {
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 17; j++) {
-                repeat_increase[i][j] = j;
-            }
-        }
-    }
-
     void store(Operand dest, spv::Id source, std::uint8_t dest_mask = 0xFF, int shift_offset = 0);
+
     spv::Id swizzle_to_spv_comp(spv::Id composite, spv::Id type, SwizzleChannel swizzle);
-
-    // TODO: Separate file for translator helpers?
-    static size_t dest_mask_to_comp_count(Imm4 dest_mask);
-
-    bool m_second_program{ false };
-
     spv::Id do_alu_op(Instruction &inst, const Imm4 source_mask, const Imm4 possible_dest_mask);
 
 public:
-    void set_secondary_program(const bool is_it) {
-        m_second_program = is_it;
-    }
-
-    bool is_translating_secondary_program() {
-        return m_second_program;
-    }
-
     // Instructions start
     bool vmad2(Imm1 dat_fmt,
         Imm2 pred,
@@ -232,7 +135,7 @@ public:
         Imm2 src0_swiz_bits01,
         Imm6 src0_n,
         Imm6 src1_n,
-        Imm6 src2_n);
+        Imm6 src2_n) override;
 
     bool v32nmad(ExtVecPredicate pred,
         bool skipinv,
@@ -255,30 +158,7 @@ public:
         Imm7 src1_swiz_0_6,
         Imm3 op2,
         Imm6 src1_n,
-        Imm6 src2_n);
-
-    bool v16nmad(ExtVecPredicate pred,
-        bool skipinv,
-        Imm2 src1_swiz_10_11,
-        bool syncstart,
-        Imm1 dest_bank_ext,
-        Imm1 src1_swiz_9,
-        Imm1 src1_bank_ext,
-        Imm1 src2_bank_ext,
-        Imm4 src2_swiz,
-        bool nosched,
-        Imm4 dest_mask,
-        Imm2 src1_mod,
-        Imm1 src2_mod,
-        Imm2 src1_swiz_7_8,
-        Imm2 dest_bank_sel,
-        Imm2 src1_bank_sel,
-        Imm2 src2_bank_sel,
-        Imm6 dest_n,
-        Imm7 src1_swiz_0_6,
-        Imm3 op2,
-        Imm6 src1_n,
-        Imm6 src2_n);
+        Imm6 src2_n) override;
 
     bool vmad(ExtVecPredicate pred,
         Imm1 skipinv,
@@ -307,7 +187,7 @@ public:
         Imm1 gpi0_neg,
         Imm1 src1_swiz_ext,
         Imm4 src1_swiz,
-        Imm6 src1_n);
+        Imm6 src1_n) override;
 
     bool vdp(ExtVecPredicate pred,
         Imm1 skipinv,
@@ -333,7 +213,7 @@ public:
         Imm3 src1_swiz_z,
         Imm3 src1_swiz_y,
         Imm3 src1_swiz_x,
-        Imm6 src1_n);
+        Imm6 src1_n) override;
 
     bool vdual(Imm1 comp_count_type,
         Imm1 gpi1_neg,
@@ -360,7 +240,7 @@ public:
         Imm2 gpi1_slot_num,
         Imm2 gpi0_slot_num,
         Imm3 write_mask_non_gpi,
-        Imm7 unified_store_slot_num);
+        Imm7 unified_store_slot_num) override;
 
     bool vcomp(ExtPredicate pred,
         bool skipinv,
@@ -379,7 +259,7 @@ public:
         Imm2 src1_bank,
         Imm7 dest_n,
         Imm7 src1_n,
-        Imm4 write_mask);
+        Imm4 write_mask) override;
 
     bool vmov(ExtPredicate pred,
         bool skipinv,
@@ -404,7 +284,7 @@ public:
         Imm6 dest_n,
         Imm6 src0_n,
         Imm6 src1_n,
-        Imm6 src2_n);
+        Imm6 src2_n) override;
 
     bool vpck(ExtPredicate pred,
         bool skipinv,
@@ -430,7 +310,7 @@ public:
         Imm6 src1_n,
         Imm1 comp0_sel_bit1,
         Imm6 src2_n,
-        Imm1 comp_sel_0_bit0);
+        Imm1 comp_sel_0_bit0) override;
 
     bool vtst(ExtPredicate pred,
         Imm1 skipinv,
@@ -456,7 +336,7 @@ public:
         Imm2 alu_sel,
         Imm4 alu_op,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
     bool vtstmsk(ExtPredicate pred,
         Imm1 skipinv,
@@ -481,7 +361,7 @@ public:
         Imm2 alu_sel,
         Imm4 alu_op,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
     bool vbw(Imm3 op1,
         ExtPredicate pred,
@@ -505,7 +385,7 @@ public:
         Imm7 dest_n,
         Imm7 src2_sel,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
     bool sop2(Imm2 pred,
         Imm1 cmod1,
@@ -533,7 +413,7 @@ public:
         Imm1 asrc1_mod,
         Imm1 dest_mod,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
     bool sop2m(Imm2 pred,
         Imm1 mod1,
@@ -554,7 +434,7 @@ public:
         Imm2 src2bank,
         Imm7 destnum,
         Imm7 src1num,
-        Imm7 src2num);
+        Imm7 src2num) override;
 
     bool sop3(Imm2 pred,
         Imm1 cmod1,
@@ -579,7 +459,7 @@ public:
         Imm7 destn,
         Imm7 src0n,
         Imm7 src1n,
-        Imm7 src2n);
+        Imm7 src2n) override;
 
     bool i8mad(Imm2 pred,
         Imm1 cmod1,
@@ -608,7 +488,7 @@ public:
         Imm7 dest_num,
         Imm7 src0_num,
         Imm7 src1_num,
-        Imm7 src2_num);
+        Imm7 src2_num) override;
 
     bool i16mad(ShortPredicate pred,
         Imm1 abs,
@@ -633,7 +513,7 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
     bool i32mad(ShortPredicate pred,
         Imm1 src0_high,
@@ -655,15 +535,7 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
-
-    bool illegal22();
-
-    bool illegal23();
-
-    bool illegal24();
-
-    bool i8mad2();
+        Imm7 src2_n) override;
 
     bool i32mad2(ExtPredicate pred,
         Imm1 nosched,
@@ -684,9 +556,7 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
-
-    bool illegal27();
+        Imm7 src2_n) override;
 
     bool smp(ExtPredicate pred,
         Imm1 skipinv,
@@ -710,59 +580,15 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
 
-    bool phas(Imm1 sprvv,
-        Imm1 end,
-        Imm1 imm,
-        Imm1 src1_bank_ext,
-        Imm1 src2_bank_ext,
-        Imm1 mode,
-        Imm1 rate_hi,
-        Imm1 rate_lo_or_nosched,
-        Imm3 wait_cond,
-        Imm8 temp_count,
-        Imm2 src1_bank,
-        Imm2 src2_bank,
-        Imm6 exe_addr_high,
-        Imm7 src1_n_or_exe_addr_mid,
-        Imm7 src2_n_or_exe_addr_low);
-
-    bool nop();
-
-    bool br(ExtPredicate pred,
-        Imm1 syncend,
-        bool exception,
-        bool pwait,
-        Imm1 sync_ext,
-        bool nosched,
-        bool br_monitor,
-        bool save_link,
-        Imm1 br_type,
-        Imm1 any_inst,
-        Imm1 all_inst,
-        uint32_t br_off);
-
-    bool smlsi(Imm1 nosched,
-        Imm4 temp_limit,
-        Imm4 pa_limit,
-        Imm4 sa_limit,
-        Imm1 dest_inc_mode,
-        Imm1 src0_inc_mode,
-        Imm1 src1_inc_mode,
-        Imm1 src2_inc_mode,
-        Imm8 dest_inc,
-        Imm8 src0_inc,
-        Imm8 src1_inc,
-        Imm8 src2_inc);
-
-    bool smbo(Imm1 nosched,
+    virtual bool smbo(Imm1 nosched,
         Imm12 dest_offset,
         Imm12 src0_offset,
         Imm12 src1_offset,
-        Imm12 src2_offset);
+        Imm12 src2_offset) override;
 
-    bool kill(ShortPredicate pred);
+    bool kill(ShortPredicate pred) override;
 
     bool limm(bool skipinv,
         bool nosched,
@@ -773,7 +599,7 @@ public:
         Imm5 imm_value_bits21to25,
         Imm2 dest_bank,
         Imm7 dest_num,
-        Imm21 imm_value_first_21bits);
+        Imm21 imm_value_first_21bits) override;
 
     bool depthf(bool sync,
         bool src0_bank_ext,
@@ -790,10 +616,7 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
-
-    bool spec(bool special,
-        SpecialCategory category);
+        Imm7 src2_n) override;
 
     bool vldst(Imm2 op1,
         ExtPredicate pred,
@@ -820,7 +643,7 @@ public:
         Imm7 dest_n,
         Imm7 src0_n,
         Imm7 src1_n,
-        Imm7 src2_n);
+        Imm7 src2_n) override;
     // Instructions end
 private:
     spv::Id vtst_impl(Instruction inst, ExtPredicate pred, int zero_test, int sign_test, Imm4 load_mask, bool mask);
@@ -828,45 +651,26 @@ private:
     // SPIR-V emitter
     spv::Builder &m_b;
 
-    // Instruction word being translated
-    const uint64_t &m_instr;
-
     // SPIR-V IDs
     const SpirvShaderParameters &m_spirv_params;
-
-    USSERecompiler &m_recompiler;
-
-    const SceGxmProgram &m_program;
-
-    const FeatureState &m_features;
 };
 
-constexpr int sgx543_pc_bits = 20;
-
-struct USSERecompiler final {
-    const std::uint64_t *inst;
-    std::size_t count;
+struct USSERecompilerSpirv : public USSERecompiler {
+    std::stack<spv::Builder::If> cond_stacks;
     spv::Builder &b;
-    USSETranslatorVisitor visitor;
-    std::uint64_t cur_instr;
-    usse::USSEOffset cur_pc;
 
-    spv::Function *end_hook_func;
+    USSETranslatorVisitorSpirv *get_spirv_translator_visitor();
 
-    USSEBlockNode tree_block_node;
+    explicit USSERecompilerSpirv(spv::Builder &b, const SceGxmProgram &program, const FeatureState &features,
+        const SpirvShaderParameters &parameters, utils::SpirvUtilFunctions &utils, const NonDependentTextureQueryCallInfos &queries);
 
-    explicit USSERecompiler(spv::Builder &b, const SceGxmProgram &program, const FeatureState &features,
-        const SpirvShaderParameters &parameters, utils::SpirvUtilFunctions &utils, spv::Function *end_hook_func,
-        const NonDependentTextureQueryCallInfos &queries, const spv::Id render_info_id);
+    void compile_break_node(const usse::USSEBreakNode &node) override;
+    void compile_continue_node(const usse::USSEContinueNode &node) override;
+    void compile_conditional_node(const usse::USSEConditionalNode &cond) override;
+    void compile_loop_node(const usse::USSELoopNode &loop) override;
 
-    void reset(const std::uint64_t *inst, const std::size_t count);
-
-    void compile_code_node(const usse::USSECodeNode &code);
-    void compile_break_node(const usse::USSEBreakNode &node);
-    void compile_continue_node(const usse::USSEContinueNode &node);
-    void compile_conditional_node(const usse::USSEConditionalNode &cond);
-    void compile_loop_node(const usse::USSELoopNode &loop);
-    void compile_block(const usse::USSEBlockNode &block);
+    void begin_condition(const int cond) override;
+    void end_condition() override;
 
     spv::Id get_condition_value(const std::uint8_t pred, const bool neg = false);
     spv::Function *compile_program_function();

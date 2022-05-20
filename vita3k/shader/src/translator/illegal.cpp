@@ -15,25 +15,28 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include <shader/usse_translator.h>
+#include <shader/translator.h>
 #include <util/log.h>
 
-bool shader::usse::USSETranslatorVisitor::illegal22() {
+namespace shader::usse {
+bool USSETranslatorVisitor::illegal22() {
     LOG_ERROR("Illegal shader opcode: 22");
     return false;
 }
 
-bool shader::usse::USSETranslatorVisitor::illegal23() {
+bool USSETranslatorVisitor::illegal23() {
     LOG_ERROR("Illegal shader opcode: 23");
     return false;
 }
 
-bool shader::usse::USSETranslatorVisitor::illegal24() {
+bool USSETranslatorVisitor::illegal24() {
     LOG_ERROR("Illegal shader opcode: 24");
     return false;
 }
 
-bool shader::usse::USSETranslatorVisitor::illegal27() {
+bool USSETranslatorVisitor::illegal27() {
     LOG_ERROR("Illegal shader opcode: 27");
     return false;
 }
+} // namespace shader::usse
+
