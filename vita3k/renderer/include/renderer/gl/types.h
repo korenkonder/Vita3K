@@ -24,10 +24,12 @@
 
 #include <renderer/gl/ring_buffer.h>
 #include <renderer/texture_cache.h>
-#include <shader/uniform_block.h>
+#include <shader/program_analyzer.h>
 
 #include <map>
 #include <memory>
+#include <set>
+#include <tuple>
 #include <vector>
 
 typedef void *SDL_GLContext;

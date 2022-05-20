@@ -25,7 +25,7 @@
 #include <gxm/types.h>
 #include <util/log.h>
 
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
 
 #include <vector>
 
@@ -115,8 +115,8 @@ static std::string convert_hash_to_hex(const Sha256Hash &hash) {
     return ss.str();
 }
 
-static SharedGLObject compile_program(ProgramCache &program_cache, const SharedGLObject &frag_shader, const SharedGLObject &vert_shader, const ProgramHashes &hashes) {
-    SharedGLObject program = std::make_shared<GLObject>();
+static SharedGLObject compile_program(GLState &renderer, ProgramCache &program_cache, const SharedGLObject &frag_shader, const SharedGLObject &vert_shader, const ProgramHashes &hashes) {
+    const SharedGLObject program = std::make_shared<GLObject>();
     if (!program->init(glCreateProgram(), glDeleteProgram)) {
         return SharedGLObject();
     }
@@ -206,7 +206,7 @@ void pre_compile_program(GLState &renderer, const ShadersHash &hash) {
 
         // Compile Program
         const ProgramHashes hashes(hash.frag, hash.vert);
-        compile_program(renderer.program_cache, frag_shader, vert_shader, hashes);
+        compile_program(renderer, renderer.program_cache, frag_shader, vert_shader, hashes);
         renderer.programs_count_pre_compiled++;
         LOG_INFO("Program Compiled {}/{}", renderer.programs_count_pre_compiled, renderer.shaders_cache_hashs.size());
     }
@@ -282,7 +282,7 @@ SharedGLObject compile_program(GLState &renderer, GLContext &context, const GxmR
         return SharedGLObject();
     }
 
-    SharedGLObject program = compile_program(renderer.program_cache, fragment_shader, vertex_shader, hashes);
+    const SharedGLObject program = compile_program(renderer, renderer.program_cache, fragment_shader, vertex_shader, hashes);
 
     // Save shader cache haches
     const auto shader_cache_hash_index = get_shaders_hash_index(renderer.shaders_cache_hashs, fragment_program.hash, vertex_program.hash);

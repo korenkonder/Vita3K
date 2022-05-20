@@ -37,7 +37,7 @@
 #include <renderer/functions.h>
 #include <renderer/shaders.h>
 #include <renderer/state.h>
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
 #include <util/log.h>
 #include <util/string_utils.h>
 

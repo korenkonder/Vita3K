@@ -16,18 +16,19 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include <shader/spirv_recompiler.h>
-#include <shader/uniform_block.h>
-#include <shader/usse_disasm.h>
-#include <shader/usse_program_analyzer.h>
-#include <shader/usse_utilities.h>
+#include <shader/disasm.h>
+#include <shader/program_analyzer.h>
+#include <shader/recompiler.h>
+#include <shader/spirv/utilities.h>
 
 #include <gxm/functions.h>
 #include <gxm/types.h>
 #include <shader/gxp_parser.h>
-#include <shader/usse_translator_entry.h>
-#include <shader/usse_translator_types.h>
-#include <util/fs.h>
+#include <shader/profile.h>
+#include <shader/uniform_block.h>
+#include <shader/spirv/recompiler.h>
+#include <shader/spirv/translator_entry.h>
+#include <shader/translator_types.h>
 #include <util/log.h>
 #include <util/overloaded.h>
 
@@ -35,14 +36,7 @@
 #include <SPIRV/disassemble.h>
 #include <spirv_glsl.hpp>
 
-#include <algorithm>
-#include <fstream>
-#include <functional>
-#include <list>
-#include <map>
-#include <sstream>
 #include <utility>
-#include <vector>
 
 static constexpr bool LOG_SHADER_CODE = false;
 static constexpr bool DUMP_SPIRV_BINARIES = false;
@@ -209,7 +203,7 @@ static spv::Id get_param_type(spv::Builder &b, const Input &input) {
     }
 }
 
-spv::StorageClass reg_type_to_spv_storage_class(usse::RegisterBank reg_type) {
+static spv::StorageClass reg_type_to_spv_storage_class(usse::RegisterBank reg_type) {
     switch (reg_type) {
     case usse::RegisterBank::TEMP:
         return spv::StorageClassPrivate;
@@ -311,15 +305,15 @@ static spv::Id create_input_variable(spv::Builder &b, SpirvShaderParameters &par
             }
         }
 
-        if (is_integer_data_type(dest.type) && b.isFloatType(utils::unwrap_type(b, b.getTypeId(var))))
-            var = utils::convert_to_int(b, utils, var, dest.type, true);
-
         if (is_4th_component_1) {
             // set the 4th component to 1, because it's what the shader is expecting it to be
             const spv::Id comp_type = utils::unwrap_type(b, b.getTypeId(var));
             const spv::Id one = utils::make_uniform_vector_from_type(b, comp_type, 1);
             var = b.createVectorInsertDynamic(var, b.getTypeId(var), one, b.makeUintConstant(3));
         }
+
+        if (is_integer_data_type(dest.type) && b.isFloatType(utils::unwrap_type(b, b.getTypeId(var))))
+            var = utils::convert_to_int(b, utils, var, dest.type, true);
 
         utils::store(b, parameters, utils, features, dest, var, dest_mask, 0);
     }
@@ -526,6 +520,7 @@ static void create_fragment_inputs(spv::Builder &b, SpirvShaderParameters &param
 
                 if (anonymous && sampler_resource_index == 0)
                     LOG_WARN("Fragment shader has more than one anonymous texture");
+
                 anonymous = true;
                 tex_name = fmt::format("anonymousTexture{}", anon_tex_count++);
             }
@@ -628,10 +623,10 @@ static void create_fragment_inputs(spv::Builder &b, SpirvShaderParameters &param
                 tex_query_info.sampler = create_param_sampler(b, (program.is_vertex() ? "vertTex_" : "fragTex_") + tex_name, dim_type);
 
                 b.addDecoration(tex_query_info.sampler, spv::DecorationBinding, sampler_resource_index);
-                if (translation_state.is_vulkan)
-                    b.addDecoration(tex_query_info.sampler, spv::DecorationDescriptorSet, program.is_vertex() ? 2 : 3);
                 samplers[sampler_resource_index] = { tex_query_info.sampler, sampler_resource_index, tex_query_info.component_type, tex_query_info.component_count, (dim_type == spv::DimCube) };
             } else {
+                if (translation_state.is_vulkan)
+                    b.addDecoration(tex_query_info.sampler, spv::DecorationDescriptorSet, program.is_vertex() ? 2 : 3);
                 tex_query_info.sampler = samplers[sampler_resource_index].id;
             }
 
@@ -706,7 +701,7 @@ static void create_fragment_inputs(spv::Builder &b, SpirvShaderParameters &param
             }
         };
 
-        if (features.direct_fragcolor && (translation_state.is_vulkan || translation_state.is_target_glsl)) {
+         if (features.direct_fragcolor && (translation_state.is_vulkan || translation_state.is_target_glsl)) {
             // The GPU supports gl_LastFragData.
             // On Vulkan this is a subpass input, it is similar to gl_LastFragData (and should have the same speed on integrated GPUs)
             // This is not supported on OpenGL with SpirV
@@ -839,8 +834,8 @@ static void copy_uniform_block_to_register(spv::Builder &builder, spv::Id sa_ban
             to_copy = builder.createOp(spv::OpVectorShuffle, builder.getTypeId(to_copy), ops_copy_1);
             spv::Id to_copy_2 = builder.createOp(spv::OpVectorShuffle, builder.getTypeId(to_copy), ops_copy_2);
 
-            builder.createStore(to_copy, dest);
-            builder.createStore(to_copy_2, dest_friend);
+            builder.createStore(builder.createLoad(to_copy, spv::NoPrecision), dest);
+            builder.createStore(builder.createLoad(to_copy_2, spv::NoPrecision), dest_friend);
         }
     });
 }
@@ -1273,7 +1268,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
                            }
                        },
                        [&](const DependentSamplerInputSource &s) {
-                           const auto &spv_sampler = samplers.at(s.index);
+                           const auto& spv_sampler = samplers.at(s.index);
                            spv_params.samplers.emplace(input.offset, spv_sampler);
 
                            if (has_texture_buffer && s.layout_position == 0) {
@@ -1288,6 +1283,9 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
                        [&](const AttributeInputSource &s) {
                            add_var_to_reg(input, s.name, s.semantic, true, s.regformat, in_fcount_allocated / 4);
                            in_fcount_allocated += ((input.array_size * input.component_count + 3) / 4 * 4);
+                       },
+                       [&](const NonDependentSamplerSampleSource &s) {
+                           // TODO!
                        } },
             input.source);
     }
@@ -1362,6 +1360,10 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
         }
     }
 
+    // we need to static cast to int, as addMemberDecoration has an overload for both int and char*
+    // and some compiler are not sure what to convert size_t to
+#define intoffsetof(s, m) static_cast<int>(offsetof(s, m))
+
     if (translation_state.is_fragment)
         create_fragment_inputs(b, spv_params, utils, features, translation_state, texture_queries, samplers, program);
 
@@ -1370,9 +1372,9 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
 
 static void generate_shader_body(spv::Builder &b, const SpirvShaderParameters &parameters, const SceGxmProgram &program,
     const FeatureState &features, utils::SpirvUtilFunctions &utils, spv::Function *begin_hook_func, spv::Function *end_hook_func,
-    const NonDependentTextureQueryCallInfos &texture_queries, const spv::Id render_info_id, spv::Function *spv_func_main, std::vector<spv::Id> &interfaces) {
+    const NonDependentTextureQueryCallInfos &texture_queries, spv::Function *spv_func_main, std::vector<spv::Id> &interfaces) {
     // Do texture queries
-    usse::convert_gxp_usse_to_spirv(b, program, features, parameters, utils, begin_hook_func, end_hook_func, texture_queries, render_info_id, spv_func_main, interfaces);
+    usse::convert_gxp_usse_to_spirv(b, program, features, parameters, utils, begin_hook_func, end_hook_func, texture_queries, spv_func_main, interfaces);
 }
 
 static spv::Function *make_frag_finalize_function(spv::Builder &b, const SpirvShaderParameters &parameters,
@@ -1554,6 +1556,7 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
     add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_TEXCOORD9, "v_TexCoord9", calculate_copy_comp_count(coord_infos[9]), 13);
 
     add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_PSIZE, "v_Psize", 1, 14);
+
     // TODO: these should be translated to gl_ClipDistance
     // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP0, "v_Clip0", 1);
     // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP1, "v_Clip1", 1);
@@ -1756,7 +1759,8 @@ static void generate_update_mask_body(spv::Builder &b, TranslationState &transla
     b.createStore(mask_v, out);
 }
 
-static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, TranslationState &translation_state, bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper) {
+static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, TranslationState &translation_state,
+    bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper) {
     SpirvCode spirv;
 
     SceGxmProgramType program_type = program.get_type();
@@ -1787,7 +1791,6 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
 
     NonDependentTextureQueryCallInfos texture_queries;
     utils::SpirvUtilFunctions utils;
-    utils.std_builtins = b.import("GLSL.std.450");
 
     std::string entry_point_name;
     spv::ExecutionModel execution_model;
@@ -1818,8 +1821,6 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
     spv::Function *spv_func_main = b.makeEntryPoint(entry_point_name.c_str());
     spv::Function *end_hook_func = nullptr;
     spv::Function *begin_hook_func = nullptr;
-
-    std::vector<spv::Id> empty_args;
 
     if (translation_state.is_vulkan && !features.support_memory_mapping)
         // core in spv 1.3
@@ -1875,7 +1876,7 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
             });
         }
 
-        generate_shader_body(b, parameters, program, features, utils, begin_hook_func, end_hook_func, texture_queries, translation_state.render_info_id, spv_func_main, translation_state.interfaces);
+        generate_shader_body(b, parameters, program, features, utils, begin_hook_func, end_hook_func, texture_queries, spv_func_main, translation_state.interfaces);
     } else {
         generate_update_mask_body(b, translation_state);
     }
@@ -1991,7 +1992,7 @@ static spv::ImageFormat translate_color_format(const SceGxmColorBaseFormat forma
 // * Functions (exposed API) *
 // ***************************
 
-GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
+GeneratedShader convert_gxp_to_spirv(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
     bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper) {
     TranslationState translation_state;
     translation_state.is_fragment = program.is_fragment();
@@ -2027,35 +2028,6 @@ GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &sha
     }
 
     return shader;
-}
-
-void convert_gxp_to_glsl_from_filepath(const std::string &shader_filepath) {
-    const fs::path shader_filepath_str{ shader_filepath };
-    std::ifstream gxp_stream(shader_filepath, std::ifstream::binary);
-
-    if (!gxp_stream.is_open())
-        return;
-
-    const auto gxp_file_size = fs::file_size(shader_filepath_str);
-    const auto gxp_program = static_cast<SceGxmProgram *>(calloc(gxp_file_size, 1));
-
-    gxp_stream.read(reinterpret_cast<char *>(gxp_program), gxp_file_size);
-
-    FeatureState features;
-    features.direct_fragcolor = false;
-    features.support_shader_interlock = true;
-
-    // use some default hints because we don't have them available
-    Hints hints{
-        .attributes = nullptr,
-        .color_format = SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR,
-    };
-    std::fill_n(hints.vertex_textures, SCE_GXM_MAX_TEXTURE_UNITS, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
-    std::fill_n(hints.fragment_textures, SCE_GXM_MAX_TEXTURE_UNITS, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR);
-
-    convert_gxp(*gxp_program, shader_filepath_str.filename().string(), features, shader::Target::GLSLOpenGL, hints, false, true);
-
-    free(gxp_program);
 }
 
 } // namespace shader
