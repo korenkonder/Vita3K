@@ -18,10 +18,11 @@
 #include <gxm/functions.h>
 #include <gxm/types.h>
 #include <shader/gxp_parser.h>
-#include <shader/usse_program_analyzer.h>
-#include <shader/usse_types.h>
+#include <shader/program_analyzer.h>
+#include <shader/types.h>
 
 #include <cassert>
+
 #include <queue>
 
 namespace shader::usse {
@@ -62,7 +63,6 @@ std::uint8_t get_predicate(const std::uint64_t inst) {
     // VMAD2
     case 0b00000:
         return ((inst >> 32) & ~0xFCFFFFFF) >> 24;
-
     // V32NMAD, V16NMAD, VMAD
     case 0b00001:
     case 0b00010:

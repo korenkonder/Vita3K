@@ -28,7 +28,7 @@
 #include <util/align.h>
 #include <util/log.h>
 
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
 
 #include <cmath>
 
@@ -174,7 +174,8 @@ void sync_clipping(const GLState &state, GLContext &context) {
 }
 
 void sync_cull(const GxmRecordState &state) {
-    // Culling.
+    // Culling. We set front face to CCW by default. So we flip all faces here
+    // Because GL Y axis is negated.
     switch (state.cull_mode) {
     case SCE_GXM_CULL_CCW:
         glEnable(GL_CULL_FACE);

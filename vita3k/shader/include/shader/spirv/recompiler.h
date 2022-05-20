@@ -17,34 +17,18 @@
 
 #pragma once
 
-//
-// Decoder/translator usage (exposed API)
-//
+#include <shader/recompiler.h>
+#include <shader/translator_types.h>
 
-#include <cstdint>
+#include <string>
 #include <vector>
 
 struct SceGxmProgram;
-struct FeatureState;
-
-namespace spv {
-class Builder;
-class Function;
-} // namespace spv
 
 namespace shader {
-namespace usse {
-struct SpirvShaderParameters;
-struct NonDependentTextureQueryCallInfo;
+// Dump generated SPIR-V disassembly up to this point
+void spirv_disasm_print(const usse::SpirvCode &spirv_binary, std::string *spirv_dump = nullptr);
 
-namespace utils {
-struct SpirvUtilFunctions;
-}
-
-using NonDependentTextureQueryCallInfos = std::vector<NonDependentTextureQueryCallInfo>;
-
-void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, const FeatureState &features, const SpirvShaderParameters &parameters, utils::SpirvUtilFunctions &utils,
-    spv::Function *begin_hook_func, spv::Function *end_hook_func, const NonDependentTextureQueryCallInfos &queries, const uint32_t render_info_id, spv::Function *spv_func_main, std::vector<uint32_t> &interfaces);
-
-} // namespace usse
+GeneratedShader convert_gxp_to_spirv(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
+    bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper);
 } // namespace shader

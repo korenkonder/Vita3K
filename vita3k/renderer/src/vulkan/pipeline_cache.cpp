@@ -25,7 +25,7 @@
 #include <gxm/types.h>
 #include <renderer/shaders.h>
 #include <shader/gxp_parser.h>
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
 
 #include <util/fs.h>
 #include <util/log.h>

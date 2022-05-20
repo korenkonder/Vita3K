@@ -24,7 +24,8 @@
 #include <gxm/types.h>
 #include <renderer/functions.h>
 #include <renderer/pvrt-dec.h>
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
+#include <util/align.h>
 #include <util/log.h>
 
 namespace renderer::texture {

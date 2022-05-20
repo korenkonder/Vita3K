@@ -23,7 +23,7 @@
 #include <config/state.h>
 #include <config/version.h>
 #include <display/state.h>
-#include <shader/spirv_recompiler.h>
+#include <shader/recompiler.h>
 #include <util/align.h>
 #include <util/float_to_half.h>
 #include <util/log.h>
@@ -423,6 +423,10 @@ bool VKState::create(SDL_Window *window, std::unique_ptr<renderer::State> &state
         features.support_memory_mapping = false;
 #endif
 
+        // GLSL has no support for memory mapping at this moment
+        if (!features.spirv_shader)
+            features.support_memory_mapping = false;
+            
         if (features.support_memory_mapping) {
             if (support_external_memory) {
                 // disable this extension on GPUs with an alignment requirement higher than 4096 (should only

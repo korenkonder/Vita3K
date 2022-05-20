@@ -1,5 +1,5 @@
 // Vita3K emulator project
-// Copyright (C) 2024 Vita3K team
+// Copyright (C) 2021 Vita3K team
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,19 +15,10 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#pragma once
-
-#include <gxm/functions.h>
-#include <gxm/types.h>
-#include <shader/translator_types.h>
 #include <shader/types.h>
 
-namespace shader {
-
-usse::GenericType translate_generic_type(const gxp::GenericParameterType &type);
-std::tuple<usse::DataType, std::string> get_parameter_type_store_and_name(const SceGxmParameterType &type);
-usse::ProgramInput get_program_input(const SceGxmProgram &program);
-usse::DataType get_texture_component_type(SceGxmTextureFormat format);
-uint8_t get_texture_component_count(SceGxmTextureFormat format);
-
-} // namespace shader
+namespace shader::usse {
+bool is_sub_opcode(Opcode test_op) {
+    return (test_op == Opcode::VSUB) || (test_op == Opcode::VF16SUB) || (test_op == Opcode::ISUB8) || (test_op == Opcode::ISUB16) || (test_op == Opcode::ISUB32) || (test_op == Opcode::ISUBU8) || (test_op == Opcode::ISUBU16) || (test_op == Opcode::ISUBU32) || (test_op == Opcode::FPSUB8);
+}
+} // namespace shader::usse

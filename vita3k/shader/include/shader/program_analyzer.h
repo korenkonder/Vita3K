@@ -22,7 +22,7 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <shader/usse_types.h>
+#include <shader/types.h>
 #include <vector>
 
 using UniformBufferSizes = std::array<std::uint32_t, 15>;
