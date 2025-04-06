@@ -116,10 +116,6 @@ static void create_uniform_buffers(CodeWriter &writer, const SceGxmProgram &prog
 }
 
 static void create_samplers(CodeWriter &writer, SamplerMap &sampler_map, const SceGxmProgram &program, const ProgramInput &input, const Hints *hints = nullptr) {
-    writer.add_declaration("vec4 textureProjCube(samplerCube sampler, vec4 coord) {");
-    writer.add_declaration("\treturn texture(sampler, coord.xyz / coord.w);");
-    writer.add_declaration("}");
-
     for (const auto &sampler : input.samplers) {
         std::string sampler_name = fmt::format("{}_{}", program.is_vertex() ? "vertTex" : "fragTex", sampler.name);
         nicen_name_for_glsl_rules(sampler_name);

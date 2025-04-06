@@ -42,6 +42,7 @@ ShaderVariables::ShaderVariables(CodeWriter &writer, const ProgramInput &input, 
     should_gen_vecfloat_bitcast[0] = should_gen_vecfloat_bitcast[1] = should_gen_vecfloat_bitcast[2]
         = should_gen_vecfloat_bitcast[3] = false;
     should_gen_clamp16 = false;
+    should_gen_textureprojcube = false;
     should_gen_indexing_lookup[0] = should_gen_indexing_lookup[1] = should_gen_indexing_lookup[2]
         = should_gen_indexing_lookup[3] = false;
 
@@ -1768,6 +1769,14 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("return ivec3(bitfieldExtract(cc, 0, 10), bitfieldExtract(cc, 10, 10), bitfieldExtract(cc, 20, 10));");
         writer.dedent_declaration();
         writer.add_declaration("}\n");
+    }
+
+    if (should_gen_textureprojcube) {
+        writer.add_declaration("vec4 textureProjCube(samplerCube sampler, vec4 coord) {");
+        writer.indent_declaration();
+        writer.add_declaration("return texture(sampler, coord.xyz / coord.w);");
+        writer.dedent_declaration();
+        writer.add_declaration("}");
     }
 }
 

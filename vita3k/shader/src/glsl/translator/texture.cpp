@@ -49,6 +49,7 @@ std::string USSETranslatorVisitorGLSL::do_fetch_texture(const std::string tex, s
         break;
 
     case 5:
+        variables.should_gen_textureprojcube = true;
         result = fmt::format("textureProjCube({}, {})", tex, coord_name);
         break;
 
