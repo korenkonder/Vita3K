@@ -15,10 +15,12 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include <shader/disasm.h>
 #include <shader/glsl/code_writer.h>
 #include <shader/glsl/params.h>
 #include <shader/glsl/translator.h>
+
+#include <shader/decoder_helpers.h>
+#include <shader/disasm.h>
 #include <util/log.h>
 
 using namespace shader;
@@ -33,45 +35,52 @@ static std::string get_uv_coeffs(const std::string &sampled_image, const std::st
     }
 
     // first we need to get the image size
-    const std::string image_size = fmt::format("vec2(textureSize({}, {}))", sampled_image, lod);
+    const std::string image_size = fmt::format("vec2(textureSize({}, int({})))", sampled_image, lod);
 
     // un-normalize the coordinates, subtract 0.5 to each coord, the uv coefficients are the fractional values
     return std::string("fract(") + coords + " * " + image_size + " - 0.5)";
 }
 
-std::string USSETranslatorVisitorGLSL::do_fetch_texture(const std::string tex, std::string coord_name, const DataType dest_type, const int lod_mode,
+std::string USSETranslatorVisitorGLSL::do_fetch_texture(const std::string tex, const int comp_count, std::string coord_name, const DataType dest_type, const int lod_mode,
     const std::string extra1, const std::string extra2, const int gather4_comp) {
     std::string result;
 
-    switch (lod_mode) {
-    case 4:
-        result = fmt::format("textureProj({}, {})", tex, coord_name);
-        break;
+    if (gather4_comp != -1) {
+        result = fmt::format("textureGather({}, {}, {})", tex, coord_name, gather4_comp);
+    } else {
+        switch (lod_mode) {
+        case 4:
+            result = fmt::format("textureProj({}, {})", tex, coord_name);
+            break;
 
-    case 5:
-        variables.should_gen_textureprojcube = true;
-        result = fmt::format("textureProjCube({}, {})", tex, coord_name);
-        break;
+        case 5:
+            variables.should_gen_textureprojcube = true;
+            result = fmt::format("textureProjCube({}, {})", tex, coord_name);
+            break;
 
-    case 0:
-    case 1:
-        result = fmt::format("texture({}, {})", tex, coord_name);
-        break;
+        case 0:
+        case 1:
+            result = fmt::format("texture({}, {})", tex, coord_name);
+            break;
 
-    case 2:
-        result = fmt::format("textureLod({}, {}, {})", tex, coord_name, extra1);
-        break;
+        case 2:
+            result = fmt::format("textureLod({}, {}, {})", tex, coord_name, extra1);
+            break;
 
-    case 3:
-        result = fmt::format("textureGrad({}, {}, {}, {})", tex, coord_name, extra1, extra2);
-        break;
+        case 3:
+            result = fmt::format("textureGrad({}, {}, {}, {})", tex, coord_name, extra1, extra2);
+            break;
 
-    default:
-        return "";
+        default:
+            return "";
+        }
     }
 
     if (is_integer_data_type(dest_type))
         result = variables.convert_to_int(result, 4, dest_type, true);
+
+    if (gather4_comp == -1 && comp_count != 4)
+        result = result + std::string(".xyzw").substr(0, 1 + static_cast<size_t>(comp_count));
 
     return result;
 }
@@ -101,7 +110,7 @@ void USSETranslatorVisitorGLSL::do_texture_queries(const NonDependentTextureQuer
             coord_access += static_cast<char>('w' + (texture_query.proj_pos + 1) % 4);
         }
 
-        std::string fetch_result = do_fetch_texture(texture_query.sampler_name, coord_access, store_op.type, proj ? (texture_query.sampler_cube ? 5 : 4) : 0, "", "");
+        std::string fetch_result = do_fetch_texture(texture_query.sampler_name, 4, coord_access, store_op.type, proj ? (texture_query.sampler_cube ? 5 : 4) : 0, "", "");
         store_op.num = texture_query.offset_in_pa;
 
         variables.store(store_op, fetch_result, 0b1111, 0, true);
@@ -132,10 +141,41 @@ bool USSETranslatorVisitorGLSL::smp(
     Imm7 src0_n,
     Imm7 src1_n,
     Imm7 src2_n) {
-    if (!USSETranslatorVisitor::smp(pred, skipinv, nosched, syncstart, minpack, src0_ext, src2_ext, src2_ext, fconv_type,
+    Operand temp_src1;
+    temp_src1 = shader::usse::decode_src12(temp_src1, src1_n, src1_bank, src1_ext, true, 8, m_second_program);
+
+    bool is_texture_buffer_load = false;
+    if (!program_state.samplers.contains(temp_src1.num))
+        is_texture_buffer_load = true;
+
+    // if this is a texture buffer load, just attribute the first available sampler to it
+    const SamplerInfo &sampler = is_texture_buffer_load ? program_state.samplers.begin()->second : program_state.samplers.at(temp_src1.num);
+
+    if (fconv_type == 2) {
+        decoded_inst.opr.dest.type = sampler.component_type;
+    }
+
+    if (!USSETranslatorVisitor::smp(pred, skipinv, nosched, syncstart, minpack, src0_ext, src1_ext, src2_ext, fconv_type,
             mask_count, dim, lod_mode, dest_use_pa, sb_mode, src0_type, src0_bank, drc_sel, src1_bank, src2_bank,
             dest_n, src0_n, src1_n, src2_n)) {
         return false;
+    }
+
+    // only used for a load using the texture buffer
+    std::string texture_index = "";
+    if (is_texture_buffer_load) {
+        if (program_state.texture_buffer_sa_offset == -1) {
+            LOG_ERROR("Can't get the sampler (sampler doesn't exist!)");
+            return true;
+        }
+
+        if (sb_mode != 0 || lod_mode != 2) {
+            LOG_ERROR("Unhandled load using texture buffer with sb mode {} and lod mode {}", sb_mode, lod_mode);
+            return true;
+        }
+
+        decoded_inst.opr.src1.type = DataType::INT32;
+        texture_index = variables.load(decoded_inst.opr.src1, 0b1, 0);
     }
 
     // LOD mode: none, bias, replace, gradient
@@ -168,28 +208,6 @@ bool USSETranslatorVisitorGLSL::smp(
         coords = fmt::format("vec2({}, 0)", coords);
         dim = 2;
     }
-
-    bool is_texture_buffer_load = false;
-    // only used for a load using the texture buffer
-    std::string texture_index = "";
-    if (!program_state.samplers.count(decoded_inst.opr.src1.num)) {
-        if (program_state.texture_buffer_sa_offset == -1) {
-            LOG_ERROR("Can't get the sampler (sampler doesn't exist!)");
-            return true;
-        }
-
-        if (sb_mode != 0 || lod_mode != 2) {
-            LOG_ERROR("Unhandled load using texture buffer with sb mode {} and lod mode {}", sb_mode, lod_mode);
-            return true;
-        }
-
-        is_texture_buffer_load = true;
-        decoded_inst.opr.src1.type = DataType::INT32;
-        texture_index = variables.load(decoded_inst.opr.src1, 0b1, 0);
-    }
-
-    // if this is a texture buffer load, just attribute the first available sampler to it
-    const SamplerInfo &sampler = is_texture_buffer_load ? program_state.samplers.begin()->second : program_state.samplers.at(decoded_inst.opr.src1.num);
 
     std::string result;
     if (sb_mode == 2) {
@@ -291,7 +309,7 @@ bool USSETranslatorVisitorGLSL::smp(
                     if (tb_dest_fmt[fconv_type] == DataType::UNK)
                         decoded_inst.opr.dest.type = smp->component_type;
 
-                    std::string result = do_fetch_texture(smp->name, coords, decoded_inst.opr.dest.type, lod_mode, extra1);
+                    std::string result = do_fetch_texture(smp->name, smp->component_count, coords, decoded_inst.opr.dest.type, lod_mode, extra1);
                     const Imm4 dest_mask = (1U << smp->component_count) - 1;
                     variables.store(decoded_inst.opr.dest, result, dest_mask, 0);
 
@@ -305,22 +323,26 @@ bool USSETranslatorVisitorGLSL::smp(
                 if (tb_dest_fmt[fconv_type] == DataType::UNK)
                     decoded_inst.opr.dest.type = smp->component_type;
 
-                std::string result = do_fetch_texture(smp->name, coords, decoded_inst.opr.dest.type, lod_mode, extra1);
+                std::string result = do_fetch_texture(smp->name, smp->component_count, coords, decoded_inst.opr.dest.type, lod_mode, extra1);
                 const Imm4 dest_mask = (1U << smp->component_count) - 1;
                 variables.store(decoded_inst.opr.dest, result, dest_mask, 0);
             } else {
                 LOG_ERROR("Can't get the sampler (requested sampler doesn't exist!)");
             }
         } else if (sb_mode == 0) {
-            std::string result = do_fetch_texture(sampler.name, coords, decoded_inst.opr.dest.type, lod_mode, extra1, extra2);
+            std::string result = do_fetch_texture(sampler.name, sampler.component_count, coords, decoded_inst.opr.dest.type, lod_mode, extra1, extra2);
             const Imm4 dest_mask = (1U << sampler.component_count) - 1;
             variables.store(decoded_inst.opr.dest, result, dest_mask, 0);
         } else {
+            if (sb_mode == 3) {
+                writer.add_to_current_body(fmt::format("{} = {};", fmt::format("temp{}_1", dim), coords));
+            }
+
             // sb_mode = 1 or 3 : gather 4 (+ uv if sb_mode = 3)
             // first gather all components
             std::vector<std::string> g4_comps;
             for (int comp = 0; comp < sampler.component_count; comp++) {
-                g4_comps.push_back(do_fetch_texture(sampler.name, coords, decoded_inst.opr.dest.type, lod_mode, extra1, extra2, comp));
+                g4_comps.push_back(do_fetch_texture(sampler.name, sampler.component_count, coords, decoded_inst.opr.dest.type, lod_mode, extra1, extra2, comp));
             }
 
             if (sampler.component_count == 1) {
@@ -353,37 +375,15 @@ bool USSETranslatorVisitorGLSL::smp(
 
             if (sb_mode == 3) {
                 // compute and save bilinear coefficients
-                const std::string uv = get_uv_coeffs(sampler.name, coords);
-                // the pixels returned by gather4 are in the following order : (0,1) (1,1) (1,0) (0,0)
-                // so at the end we want (1-u)v uv u(1-v) (1-u)(1-v)
-                // however, looking at the generated shader code in some games, it looks like the coefficients are
-                // expected to be in this order but reversed...
-                const std::string u = uv + ".x";
-                const std::string v = uv + ".y";
-
-                const std::string onemu = std::string("1.0 - ") + u;
-                const std::string onemv = std::string("1.0 - ") + v;
-
-                // (1-u) u
-                const std::string x_coeffs = std::string("vec2(") + onemu + ", " + u + ")";
-                // (1-u)v uv
-                const std::string comp1 = x_coeffs + " * " + v;
-                // (1-u)(1-v) u(1-v)
-                const std::string comp2 = x_coeffs + " * " + onemv;
-                // (1-u)v uv u(1-v) (1-u)(1-v) in reversed order
-                const std::string coeffs = std::string("vec4(") + comp1 + ", " + comp2 + ").zwyx";
+                variables.should_gen_texture_get_bilinear_coefficients = true;
+                const std::string coeffs = std::string("textureGetBilinearCoefficients(") + get_uv_coeffs(sampler.name, fmt::format("temp{}_1", dim)) + ")";
 
                 // bilinear coeffs are stored as float16
                 decoded_inst.opr.dest.type = DataType::F16;
                 variables.store(decoded_inst.opr.dest, coeffs, 0b1111, 0);
             }
         }
-        result = do_fetch_texture(sampler.name, coords, DataType::F32, lod_mode, extra1, extra2);
-
-        const Imm4 dest_mask = (1U << sampler.component_count) - 1;
-        variables.store(decoded_inst.opr.dest, result, dest_mask, 0);
     }
-
 
     return true;
 }

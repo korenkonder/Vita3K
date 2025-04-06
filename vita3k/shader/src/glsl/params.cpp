@@ -43,6 +43,7 @@ ShaderVariables::ShaderVariables(CodeWriter &writer, const ProgramInput &input, 
         = should_gen_vecfloat_bitcast[3] = false;
     should_gen_clamp16 = false;
     should_gen_textureprojcube = false;
+    should_gen_texture_get_bilinear_coefficients = false;
     should_gen_indexing_lookup[0] = should_gen_indexing_lookup[1] = should_gen_indexing_lookup[2]
         = should_gen_indexing_lookup[3] = false;
 
@@ -1787,6 +1788,29 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("vec4 textureProjCube(samplerCube sampler, vec4 coord) {");
         writer.indent_declaration();
         writer.add_declaration("return texture(sampler, coord.xyz / coord.w);");
+        writer.dedent_declaration();
+        writer.add_declaration("}");
+    }
+    
+    if (should_gen_texture_get_bilinear_coefficients) {
+        writer.add_declaration("vec4 textureGetBilinearCoefficients(vec2 uv) {");
+        writer.indent_declaration();
+        // compute and save bilinear coefficients
+        // the pixels returned by gather4 are in the following order : (0,1) (1,1) (1,0) (0,0)
+        // so at the end we want (1-u)v uv u(1-v) (1-u)(1-v)
+        // however, looking at the generated shader code in some games, it looks like the coefficients are
+        // expected to be in this order but reversed...
+
+        // (1-u) u
+        const std::string x_coeffs = "vec2(1.0 - uv.x, uv.x)";
+        // (1-u)v uv
+        const std::string comp1 = x_coeffs + " * uv.y";
+        // (1-u)(1-v) u(1-v)
+        const std::string comp2 = x_coeffs + " * (1.0 - uv.y)";
+        // (1-u)v uv u(1-v) (1-u)(1-v) in reversed order
+        const std::string coeffs = std::string("vec4(") + comp1 + ", " + comp2 + ").zwyx";
+
+        writer.add_declaration(std::string("return ") + coeffs + ";");
         writer.dedent_declaration();
         writer.add_declaration("}");
     }
