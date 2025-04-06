@@ -195,17 +195,21 @@ bool USSETranslatorVisitorGLSL::vpck(
         Operand src1 = decoded_inst.opr.src1;
         Operand src2 = decoded_inst.opr.src2;
 
-        std::string swizz_str;
+        std::string swizzle_str;
         for (std::uint32_t i = 0; i < 4; i++) {
             if (dest_mask & (1 << i)) {
-                swizz_str += static_cast<char>('w' + ((static_cast<int>(decoded_inst.opr.src1.swizzle[i]) - static_cast<int>(SwizzleChannel::C_X) + 1) % 4));
+                swizzle_str += static_cast<char>('w' + ((static_cast<int>(src1.swizzle[i]) - static_cast<int>(SwizzleChannel::C_X) + 1) % 4));
             }
         }
 
         if ((src1.num % 4) == 0 && src1.bank == src2.bank && (src1.num + 2) == src2.num) {
             std::string source = variables.load(src1, 0b1111, src1_repeat_offset);
 
-            source = fmt::format("{}.{}", source, swizz_str);
+            if (dest_mask == 0b1111 && src1.swizzle == Swizzle4(SWIZZLE_CHANNEL_4_DEFAULT)) {
+                source = fmt::format("{}", source);
+            } else {
+                source = fmt::format("{}.{}", source, swizzle_str);
+            }
         } else {
             src1.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
             src2.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
@@ -213,7 +217,11 @@ bool USSETranslatorVisitorGLSL::vpck(
             const std::string source1 = variables.load(src1, 0b11, src1_repeat_offset);
             const std::string source2 = variables.load(src2, 0b11, src2_repeat_offset);
 
-            source = fmt::format("{}vec4({}, {}).{}", vec_prefix_str, source1, source2, swizz_str);
+            if (dest_mask == 0b1111 && src1.swizzle == Swizzle4(SWIZZLE_CHANNEL_4_DEFAULT)) {
+                source = fmt::format("{}vec4({}, {})", vec_prefix_str, source1, source2);
+            } else {
+                source = fmt::format("{}vec4({}, {}).{}", vec_prefix_str, source1, source2, swizzle_str);
+            }
         }
     }
 

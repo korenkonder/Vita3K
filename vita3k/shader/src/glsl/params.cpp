@@ -88,7 +88,11 @@ static std::string generate_read_vector(const std::string &source, const int off
 
     if (is_gpi || (offset % 4 == 0)) {
         if (swizzle_all_var) {
-            return fmt::format("{}{}.{}", source, offset, swizzle_str);
+            if (dest_mask == 0b1111 && swizz == Swizzle4(SWIZZLE_CHANNEL_4_DEFAULT)) {
+                return fmt::format("{}{}", source, offset);
+            } else {
+                return fmt::format("{}{}.{}", source, offset, swizzle_str);
+            }
         }
     }
 
@@ -1497,7 +1501,11 @@ void ShaderVariables::store(const Operand &dest, const std::string &rhs, const s
             }
         }
 
-        writer.add_to_current_body(fmt::format("{}{}.{} = {};", var_name, real_load_index, swizz_str, rhs_modded));
+        if (dest_mask == 0b1111) {
+            writer.add_to_current_body(fmt::format("{}{} = {};", var_name, real_load_index, rhs_modded));
+        } else {
+            writer.add_to_current_body(fmt::format("{}{}.{} = {};", var_name, real_load_index, swizz_str, rhs_modded));
+        }
     } else {
         // We may need to divide it out. But first we need to know if it only uses the next vec4?
         int mod = (real_load_index % 4);
@@ -1517,14 +1525,18 @@ void ShaderVariables::store(const Operand &dest, const std::string &rhs, const s
         }
 
         if (only_use_next_vec4 || only_use_this_vec4) {
-            std::string swizz_str;
-            for (std::uint8_t i = 0; i < 4; i++) {
-                if (dest_mask & (1 << i)) {
-                    swizz_str += static_cast<char>('w' + ((i + mod + 1) % 4));
+            if (mod == 0 && dest_mask == 0b1111) {
+                writer.add_to_current_body(fmt::format("{}{} = {};", var_name, only_use_this_vec4 ? (real_load_index / 4) * 4 : (real_load_index / 4 + 1) * 4, rhs_modded));
+            } else {
+                std::string swizz_str;
+                for (std::uint8_t i = 0; i < 4; i++) {
+                    if (dest_mask & (1 << i)) {
+                        swizz_str += static_cast<char>('w' + ((i + mod + 1) % 4));
+                    }
                 }
-            }
 
-            writer.add_to_current_body(fmt::format("{}{}.{} = {};", var_name, only_use_this_vec4 ? (real_load_index / 4) * 4 : (real_load_index / 4 + 1) * 4, swizz_str, rhs_modded));
+                writer.add_to_current_body(fmt::format("{}{}.{} = {};", var_name, only_use_this_vec4 ? (real_load_index / 4) * 4 : (real_load_index / 4 + 1) * 4, swizz_str, rhs_modded));
+            }
         } else {
             int num_comp_count = dest_mask_to_comp_count(dest_mask);
             std::string temp_name = fmt::format("temp{}", num_comp_count);
