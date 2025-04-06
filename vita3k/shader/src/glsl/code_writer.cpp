@@ -20,10 +20,10 @@
 namespace shader::usse::glsl {
 CodeWriter::CodeWriter()
     : active_body_type(BODY_TYPE_MAIN) {
-    preload_indentation = "\t";
-    postwork_indentation = "\t";
+    preload_indentation = "    ";
+    postwork_indentation = "    ";
     for (std::size_t i = 0; i < BODY_TYPE_MAX; i++) {
-        body_indentation[i] = "\t";
+        body_indentation[i] = "    ";
     }
 }
 
@@ -40,30 +40,44 @@ void CodeWriter::add_to_current_body(const std::string &line) {
 }
 
 void CodeWriter::indent_preload() {
-    preload_indentation.push_back('\t');
+    for (int i = 0; i < 4; i++) {
+        preload_indentation.push_back(' ');
+    }
 }
 
 void CodeWriter::dedent_preload() {
-    if (preload_indentation.length() > 1) {
-        preload_indentation.pop_back();
+    for (int i = 0; i < 4; i++) {
+        if (preload_indentation.length() > 0) {
+            preload_indentation.pop_back();
+        }
     }
 }
 
 void CodeWriter::indent_declaration() {
-    decl_indentation.push_back('\t');
+    for (int i = 0; i < 4; i++) {
+        decl_indentation.push_back(' ');
+    }
 }
 
 void CodeWriter::dedent_declaration() {
-    decl_indentation.pop_back();
+    for (int i = 0; i < 4; i++) {
+        if (decl_indentation.length() > 0) {
+            decl_indentation.pop_back();
+        }
+    }
 }
 
 void CodeWriter::indent_current_body() {
-    body_indentation[active_body_type].push_back('\t');
+    for (int i = 0; i < 4; i++) {
+        body_indentation[active_body_type].push_back(' ');
+    }
 }
 
 void CodeWriter::dedent_current_body() {
-    if (body_indentation[active_body_type].length() > 1) {
-        body_indentation[active_body_type].pop_back();
+    for (int i = 0; i < 4; i++) {
+        if (body_indentation[active_body_type].length() > 0) {
+            body_indentation[active_body_type].pop_back();
+        }
     }
 }
 
@@ -75,9 +89,9 @@ std::string CodeWriter::assemble() {
     std::string adjusted_main = std::string("void main() {\n") + preload_content;
     adjusted_main += body_content[BODY_TYPE_MAIN];
     if (!body_content[BODY_TYPE_SECONDARY_PROGRAM].empty()) {
-        adjusted_main += "\tsecondary_program();\n";
+        adjusted_main += "    secondary_program();\n";
     }
-    adjusted_main += "\tprimary_program();\n";
+    adjusted_main += "    primary_program();\n";
     adjusted_main += body_content[BODY_TYPE_POSTWORK];
     adjusted_main += "}\n";
 

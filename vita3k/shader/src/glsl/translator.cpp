@@ -65,7 +65,7 @@ void USSERecompilerGLSL::compile_continue_node(const usse::USSEContinueNode &nod
         writer.indent_current_body();
     }
 
-    writer.add_to_current_body("\tcontinue;");
+    writer.add_to_current_body("continue;");
 
     if (node.get_condition() != 0) {
         writer.dedent_current_body();
