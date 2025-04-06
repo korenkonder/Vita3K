@@ -642,11 +642,11 @@ static void create_output(ProgramState &state, CodeWriter &writer, ShaderVariabl
     writer.add_declaration("\n");
 }
 
-static void create_necessary_headers(CodeWriter &writer, const SceGxmProgram &program, const FeatureState &features, const std::string &shader_hash) {
+static void create_necessary_headers(CodeWriter &writer, const SceGxmProgram &program, const FeatureState &features, const std::string &shader_name) {
     // Must at least be version 430
     writer.add_declaration("#version 430");
     writer.add_declaration("");
-    writer.add_declaration(std::string("// Shader hash: ") + shader_hash);
+    writer.add_declaration(std::string("// Shader Name: ") + shader_name);
 
     if (program.is_fragment() && program.is_frag_color_used()) {
         if (features.direct_fragcolor) {

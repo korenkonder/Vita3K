@@ -26,12 +26,12 @@ namespace shader {
 // * Functions (exposed API) *
 // ***************************
 
-GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &shader_hash, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
+GeneratedShader convert_gxp(const SceGxmProgram &program, const std::string &shader_name, const FeatureState &features, const Target target, const Hints &hints, bool maskupdate,
     bool force_shader_debug, const std::function<bool(const std::string &ext, const std::string &dump)> &dumper) {
     if (target == Target::SpirVOpenGL || target == Target::SpirVVulkan)
-        return convert_gxp_to_spirv(program, shader_hash, features, target, hints, maskupdate, force_shader_debug, dumper);
+        return convert_gxp_to_spirv(program, shader_name, features, target, hints, maskupdate, force_shader_debug, dumper);
     else
-        return convert_gxp_to_glsl(program, shader_hash, features, hints, maskupdate, force_shader_debug, dumper);
+        return convert_gxp_to_glsl(program, shader_name, features, hints, maskupdate, force_shader_debug, dumper);
 }
 
 void convert_gxp_to_glsl_from_filepath(const std::string &shader_filepath) {
