@@ -199,12 +199,12 @@ void ShaderVariables::flush_bank(ShaderVariableBank &bank) {
     std::queue<RestorationInfo> restorations;
 
     for (auto &[base, var] : bank.variables) {
-        for (int i = 0; i < 4; i++) {
-            if ((var.declared & ShaderVariableVec4Info::DECLARED_FLOAT4) == 0) {
-                writer.add_declaration(fmt::format("vec4 {}{};", bank.prefix, base));
-                var.declared |= ShaderVariableVec4Info::DECLARED_FLOAT4;
-            }
+        if ((var.declared & ShaderVariableVec4Info::DECLARED_FLOAT4) == 0) {
+            writer.add_declaration(fmt::format("vec4 {}{};", bank.prefix, base));
+            var.declared |= ShaderVariableVec4Info::DECLARED_FLOAT4;
+        }
 
+        for (int i = 0; i < 4; i++) {
             // Force to load F32 after flush. One of the reason is because it might got declared inside an inner
             // block or not, and then the block after non conditionally for example, just continue using it as normal.
             // it's uncertain
@@ -251,9 +251,9 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
 
             if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                 if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S8) {
-                    should_gen_pack_unpack[GEN_PACK_S8] = true;
+                    should_gen_pack_unpack[GEN_PACK_4XS8] = true;
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_U8] = true;
+                    should_gen_pack_unpack[GEN_PACK_4XU8] = true;
                 }
 
                 writer.add_to_current_body(fmt::format("{}{}.{} = pack4x{}8({}8{}{});", prefix, var_key_base,
@@ -272,60 +272,60 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
                 }
             }
 
-            int index_f16 = (res_info.base_current + res_info.component) * 2;
-            int unaligned = index_f16 % 4;
-            index_f16 = (index_f16 / 4) * 4;
+            int index_16 = (res_info.base_current + res_info.component) * 2;
+            int unaligned = index_16 % 4;
+            index_16 = (index_16 / 4) * 4;
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_HALF4_N2 : ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_F16] = true;
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_HALF4_N2 : ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XF16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S8) {
-                        should_gen_pack_unpack[GEN_PACK_S8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XS8] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XU8] = true;
                     }
 
-                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16(pack4x{}8({}8{}{}));", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16(pack4x{}8({}8{}{}));", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix_for_pack, prefix_for_type, prefix, (res_info.base_current + res_info.component) * 4));
                 }
             }
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_U16_N2 : ShaderVariableVec4Info::DECLARED_U16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_U16_N2 : ShaderVariableVec4Info::DECLARED_U16_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XU16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S8) {
-                        should_gen_pack_unpack[GEN_PACK_S8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XS8] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XU8] = true;
                     }
 
-                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16(pack4x{}8({}8{}{}));", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16(pack4x{}8({}8{}{}));", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix_for_pack, prefix_for_type, prefix, (res_info.base_current + res_info.component) * 4));
                 }
             }
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_S16_N2 : ShaderVariableVec4Info::DECLARED_S16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_S16_N2 : ShaderVariableVec4Info::DECLARED_S16_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XS16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S8) {
-                        should_gen_pack_unpack[GEN_PACK_S8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XS8] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U8] = true;
+                        should_gen_pack_unpack[GEN_PACK_4XU8] = true;
                     }
 
-                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16(pack4x{}8({}8{}{}));", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16(pack4x{}8({}8{}{}));", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix_for_pack, prefix_for_type, prefix, (res_info.base_current + res_info.component) * 4));
                 }
             }
@@ -334,16 +334,16 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
         }
 
         case ShaderVariableVec4Info::DIRTY_TYPE_F16: {
-            int index_f16 = (res_info.base_current + res_info.component) * 2;
+            int index_16 = (res_info.base_current + res_info.component) * 2;
             int index_8 = (res_info.base_current + res_info.component) * 4;
-            int unaligned = index_f16 % 4;
-            bool use_part2 = (index_f16 % 8) >= 4;
-            index_f16 = (index_f16 / 4) * 4;
+            int unaligned = index_16 % 4;
+            bool use_part2 = (index_16 % 8) >= 4;
+            index_16 = (index_16 / 4) * 4;
 
             if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                should_gen_pack_unpack[GEN_PACK_F16] = true;
+                should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                 writer.add_to_current_body(fmt::format("{}{}.{} = pack2xF16(h16{}{}.{});", prefix, var_key_base,
-                    static_cast<char>('w' + (odd_index + 1) % 4), prefix, index_f16, unaligned ? "zw" : "xy"));
+                    static_cast<char>('w' + (odd_index + 1) % 4), prefix, index_16, unaligned ? "zw" : "xy"));
             }
 
             int shift_check_decl_s8 = ShaderVariableVec4Info::DECLARED_S8_SHIFT_START + odd_index;
@@ -351,42 +351,42 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
             int shift_check_decl_fx10 = ShaderVariableVec4Info::DECLARED_FX10_SHIFT_START + odd_index;
 
             if (res_info.decl & (1 << shift_check_decl_s8)) {
-                should_gen_pack_unpack[GEN_UNPACK_S8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XS8] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     writer.add_to_current_body(fmt::format("i8{}{} = unpack4xS8({}{}.{});", prefix, index_8,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_F16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                     writer.add_to_current_body(fmt::format("i8{}{} = unpack4xS8(pack2xF16(h16{}{}.{}));", prefix, index_8,
-                        prefix, index_f16, unaligned ? "zw" : "xy"));
+                        prefix, index_16, unaligned ? "zw" : "xy"));
                 }
             }
 
             if (res_info.decl & (1 << shift_check_decl_u8)) {
-                should_gen_pack_unpack[GEN_UNPACK_U8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XU8] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     writer.add_to_current_body(fmt::format("u8{}{} = unpack4xU8({}{}.{});", prefix, index_8,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_F16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                     writer.add_to_current_body(fmt::format("u8{}{} = unpack4xU8(pack2xF16(h16{}{}.{}));", prefix, index_8,
-                        prefix, index_f16, unaligned ? "zw" : "xy"));
+                        prefix, index_16, unaligned ? "zw" : "xy"));
                 }
             }
 
             if (res_info.decl & (1 << shift_check_decl_fx10)) {
                 if (shift_check_decl_fx10 != ShaderVariableVec4Info::DECLARED_FX10_N4) {
-                    should_gen_pack_unpack[GEN_UNPACK_FX10] = true;
+                    should_gen_pack_unpack[GEN_UNPACK_3XFX10] = true;
 
                     if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                         writer.add_to_current_body(fmt::format("fx10{}{}.xyz = unpack3xFX10({}{}.{});", prefix, index_8,
                             prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_F16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                         writer.add_to_current_body(fmt::format("fx10{}{}.xyz = unpack3xFX10(pack2xF16(h16{}{}.{}));", prefix, index_8,
-                            prefix, index_f16, unaligned ? "zw" : "xy"));
+                            prefix, index_16, unaligned ? "zw" : "xy"));
                     }
                 } else {
                     LOG_ERROR("C10 data type can't have 4th element!");
@@ -394,59 +394,71 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
             }
 
             if (res_info.decl & (use_part2 ? ShaderVariableVec4Info::DECLARED_S16_N2 : ShaderVariableVec4Info::DECLARED_S16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_S16] = true;
+                should_gen_pack_unpack[GEN_UNPACK_2XS16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_F16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                     writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16(pack2xF16(h16{}{}.{}));", prefix, index_8,
-                        unaligned ? "zw" : "xy", prefix, index_f16, unaligned ? "zw" : "xy"));
+                        unaligned ? "zw" : "xy", prefix, index_16, unaligned ? "zw" : "xy"));
                 }
             }
 
             if (res_info.decl & (use_part2 ? ShaderVariableVec4Info::DECLARED_U16_N2 : ShaderVariableVec4Info::DECLARED_U16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+                should_gen_pack_unpack[GEN_UNPACK_2XU16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_f16,
+                    writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_16,
                         unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_F16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XF16] = true;
                     writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16(pack2xF16(h16{}{}.{}));", prefix, index_8,
-                        unaligned ? "zw" : "xy", prefix, index_f16, unaligned ? "zw" : "xy"));
+                        unaligned ? "zw" : "xy", prefix, index_16, unaligned ? "zw" : "xy"));
                 }
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_U16) {
+                should_gen_pack_unpack[GEN_PACK_4XF16] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
+                writer.add_to_current_body(fmt::format("u16{}{} = unpack4xU16(pack4xF16(h16{}{}));", prefix, index_16, prefix, index_16));
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_S16) {
+                should_gen_pack_unpack[GEN_PACK_4XF16] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
+                writer.add_to_current_body(fmt::format("i16{}{} = unpack4xS16(pack4xF16(h16{}{}));", prefix, index_16, prefix, index_16));
             }
 
             break;
         }
 
         case ShaderVariableVec4Info::DIRTY_TYPE_F32: {
-            int index_f16 = (res_info.base_current + res_info.component) * 2;
+            int index_16 = (res_info.base_current + res_info.component) * 2;
             int index_8 = (res_info.base_current + res_info.component) * 4;
-            int unaligned = index_f16 % 4;
-            index_f16 = (index_f16 / 4) * 4;
+            int unaligned = index_16 % 4;
+            index_16 = (index_16 / 4) * 4;
 
             int shift_check_decl_s8 = ShaderVariableVec4Info::DECLARED_S8_SHIFT_START + odd_index;
             int shift_check_decl_u8 = ShaderVariableVec4Info::DECLARED_U8_SHIFT_START + odd_index;
             int shift_check_decl_fx10 = ShaderVariableVec4Info::DECLARED_FX10_SHIFT_START + odd_index;
 
             if (res_info.decl & (1 << shift_check_decl_s8)) {
-                should_gen_pack_unpack[GEN_UNPACK_S8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XS8] = true;
                 writer.add_to_current_body(fmt::format("i8{}{} = unpack4xS8({}{}.{});", prefix, index_8,
                     prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
             }
 
             if (res_info.decl & (1 << shift_check_decl_u8)) {
-                should_gen_pack_unpack[GEN_UNPACK_U8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XU8] = true;
                 writer.add_to_current_body(fmt::format("u8{}{} = unpack4xU8({}{}.{});", prefix, index_8,
                     prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
             }
 
             if (res_info.decl & (1 << shift_check_decl_fx10)) {
                 if (shift_check_decl_fx10 != ShaderVariableVec4Info::DECLARED_FX10_N4) {
-                    should_gen_pack_unpack[GEN_UNPACK_FX10] = true;
+                    should_gen_pack_unpack[GEN_UNPACK_3XFX10] = true;
                     writer.add_to_current_body(fmt::format("fx10{}{}.xyz = unpack3xFX10({}{}.{});", prefix, index_8,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
@@ -454,22 +466,40 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
                 }
             }
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_HALF4_N2 : ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_F16] = true;
-                writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_f16,
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_HALF4_N2 : ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XF16] = true;
+                writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_16,
                     unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
             }
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_U16_N2 : ShaderVariableVec4Info::DECLARED_U16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_U16] = true;
-                writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_f16,
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_U16_N2 : ShaderVariableVec4Info::DECLARED_U16_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XU16] = true;
+                writer.add_to_current_body(fmt::format("u16{}{}.{} = unpack2xU16({}{}.{});", prefix, index_16,
                     unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
             }
 
-            if (res_info.decl & (((index_f16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_S16_N2 : ShaderVariableVec4Info::DECLARED_S16_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_S16] = true;
-                writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_f16,
+            if (res_info.decl & (((index_16 % 8) >= 4) ? ShaderVariableVec4Info::DECLARED_S16_N2 : ShaderVariableVec4Info::DECLARED_S16_N1)) {
+                should_gen_pack_unpack[GEN_UNPACK_2XS16] = true;
+                writer.add_to_current_body(fmt::format("i16{}{}.{} = unpack2xS16({}{}.{});", prefix, index_16,
                     unaligned ? "zw" : "xy", prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_HALF4) {
+                should_gen_pack_unpack[GEN_UNPACK_4XF16] = true;
+                writer.add_to_current_body(fmt::format("h16{}{} = unpack4xF16({}{}.{}{});", prefix, index_16,
+                    prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4), static_cast<char>('w' + (odd_index + 2) % 4)));
+            }
+            
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_U16) {
+                should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
+                writer.add_to_current_body(fmt::format("h16{}{} = unpack4xU16({}{}.{}{});", prefix, index_16,
+                    prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4), static_cast<char>('w' + (odd_index + 2) % 4)));
+            }
+            
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_S16) {
+                should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
+                writer.add_to_current_body(fmt::format("h16{}{} = unpack4xS16({}{}.{}{});", prefix, index_16,
+                    prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4), static_cast<char>('w' + (odd_index + 2) % 4)));
             }
 
             break;
@@ -477,11 +507,11 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
 
         case ShaderVariableVec4Info::DIRTY_TYPE_U16:
         case ShaderVariableVec4Info::DIRTY_TYPE_S16: {
-            int index_f16 = (res_info.base_current + res_info.component) * 2;
+            int index_16 = (res_info.base_current + res_info.component) * 2;
             int index_8 = (res_info.base_current + res_info.component) * 4;
-            int unaligned = index_f16 % 4;
-            bool part2 = (index_f16 % 8) >= 4;
-            index_f16 = (index_f16 / 4) * 4;
+            int unaligned = index_16 % 4;
+            bool part2 = (index_16 % 8) >= 4;
+            index_16 = (index_16 / 4) * 4;
             const char *swizzle_f16 = (unaligned ? "zw" : "xy");
 
             char prefix_for_type = (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) ? 'i' : 'u';
@@ -489,12 +519,12 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
 
             if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                 if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                    should_gen_pack_unpack[GEN_PACK_S16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XS16] = true;
                 } else {
-                    should_gen_pack_unpack[GEN_PACK_U16] = true;
+                    should_gen_pack_unpack[GEN_PACK_2XU16] = true;
                 }
                 writer.add_to_current_body(fmt::format("{}{}.{} = pack2x{}16({}16{}{}.{});", prefix, var_key_base,
-                    static_cast<char>('w' + (odd_index + 1) % 4), prefix_for_pack, prefix_for_type, prefix, index_f16, swizzle_f16));
+                    static_cast<char>('w' + (odd_index + 1) % 4), prefix_for_pack, prefix_for_type, prefix, index_16, swizzle_f16));
             }
 
             std::uint32_t mask_check_other = 0;
@@ -505,28 +535,29 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
             }
 
             if (res_info.decl & mask_check_other) {
+                // Dirty hack to convert between signed and unsigned 16-bit values since uvec2 and ivec2 are 32-bit
                 if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                    writer.add_to_current_body(fmt::format("u16{}{}.{} = uvec2(i16{}{}.{});", prefix, index_f16, swizzle_f16, prefix, index_f16, swizzle_f16));
+                    writer.add_to_current_body(fmt::format("u16{}{}.{} = uvec2(i16{}{}.{} << 16) >> 16;", prefix, index_16, swizzle_f16, prefix, index_16, swizzle_f16));
                 } else {
-                    writer.add_to_current_body(fmt::format("i16{}{}.{} = ivec2(u16{}{}.{});", prefix, index_f16, swizzle_f16, prefix, index_f16, swizzle_f16));
+                    writer.add_to_current_body(fmt::format("i16{}{}.{} = ivec2(u16{}{}.{} << 16) >> 16;",  prefix, index_16, swizzle_f16, prefix, index_16, swizzle_f16));
                 }
             }
 
             if (res_info.decl & (part2 ? ShaderVariableVec4Info::DECLARED_HALF4_N2 : ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
-                should_gen_pack_unpack[GEN_UNPACK_F16] = true;
+                should_gen_pack_unpack[GEN_UNPACK_2XF16] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
-                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_f16, swizzle_f16,
+                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16({}{}.{});", prefix, index_16, swizzle_f16,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                        should_gen_pack_unpack[GEN_PACK_S16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XS16] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XU16] = true;
                     }
 
-                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16(pack2x{}16({}16{}{}.{}));", prefix, index_f16,
-                        swizzle_f16, prefix_for_pack, prefix_for_type, prefix, index_f16, swizzle_f16));
+                    writer.add_to_current_body(fmt::format("h16{}{}.{} = unpack2xF16(pack2x{}16({}16{}{}.{}));", prefix, index_16,
+                        swizzle_f16, prefix_for_pack, prefix_for_type, prefix, index_16, swizzle_f16));
                 }
             }
 
@@ -535,57 +566,85 @@ void ShaderVariables::do_restore(std::queue<RestorationInfo> &restore_infos, con
             int shift_check_decl_fx10 = ShaderVariableVec4Info::DECLARED_FX10_SHIFT_START + odd_index;
 
             if (res_info.decl & (1 << shift_check_decl_s8)) {
-                should_gen_pack_unpack[GEN_UNPACK_S8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XS8] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     writer.add_to_current_body(fmt::format("i8{}{} = unpack4xS8({}{}.{}));", prefix, index_8,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                        should_gen_pack_unpack[GEN_PACK_S16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XS16] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XU16] = true;
                     }
                     writer.add_to_current_body(fmt::format("i8{}{} = unpack4xS8(pack2x{}16({}16{}{}.{}));", prefix, index_8,
-                        prefix_for_pack, prefix_for_type, prefix, index_f16, swizzle_f16));
+                        prefix_for_pack, prefix_for_type, prefix, index_16, swizzle_f16));
                 }
             }
 
             if (res_info.decl & (1 << shift_check_decl_u8)) {
-                should_gen_pack_unpack[GEN_UNPACK_U8] = true;
+                should_gen_pack_unpack[GEN_UNPACK_4XU8] = true;
 
                 if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     writer.add_to_current_body(fmt::format("u8{}{} = unpack4xU8({}{}.{}));", prefix, index_8,
                         prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                 } else {
                     if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                        should_gen_pack_unpack[GEN_PACK_S16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XS16] = true;
                     } else {
-                        should_gen_pack_unpack[GEN_PACK_U16] = true;
+                        should_gen_pack_unpack[GEN_PACK_2XU16] = true;
                     }
                     writer.add_to_current_body(fmt::format("u8{}{} = unpack4xU8(pack2x{}16({}16{}{}.{}));", prefix, index_8,
-                        prefix_for_pack, prefix_for_type, prefix, index_f16, swizzle_f16));
+                        prefix_for_pack, prefix_for_type, prefix, index_16, swizzle_f16));
                 }
             }
 
             if (res_info.decl & (1 << shift_check_decl_fx10)) {
                 if (shift_check_decl_fx10 != ShaderVariableVec4Info::DECLARED_FX10_N4) {
-                    should_gen_pack_unpack[GEN_UNPACK_FX10] = true;
+                    should_gen_pack_unpack[GEN_UNPACK_3XFX10] = true;
 
                     if (res_info.decl & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                         writer.add_to_current_body(fmt::format("fx10{}{}.xyz = unpack3xFX10({}{}.{}));", prefix, index_8,
                             prefix, var_key_base, static_cast<char>('w' + (odd_index + 1) % 4)));
                     } else {
                         if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
-                            should_gen_pack_unpack[GEN_PACK_S16] = true;
+                            should_gen_pack_unpack[GEN_PACK_2XS16] = true;
                         } else {
-                            should_gen_pack_unpack[GEN_PACK_U16] = true;
+                            should_gen_pack_unpack[GEN_PACK_2XU16] = true;
                         }
                         writer.add_to_current_body(fmt::format("fx10{}{}.xyz = unpack3xFX10(pack2x{}16({}16{}{}.{}));", prefix, index_8,
-                            prefix_for_pack, prefix_for_type, prefix, index_f16, swizzle_f16));
+                            prefix_for_pack, prefix_for_type, prefix, index_16, swizzle_f16));
                     }
                 } else {
                     LOG_ERROR("C10 data type can't have 4th element!");
+                }
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_HALF4) {
+                should_gen_pack_unpack[GEN_UNPACK_4XF16] = true;
+
+                if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
+                    should_gen_pack_unpack[GEN_PACK_4XS16] = true;
+                    writer.add_to_current_body(fmt::format("h16{}{} = unpack4xF16(pack4xS16(i16{}{}));", prefix, index_16, prefix, index_16));
+                } else {
+                    should_gen_pack_unpack[GEN_PACK_4XU16] = true;
+                    writer.add_to_current_body(fmt::format("h16{}{} = unpack4xF16(pack4xU16(u16{}{}));", prefix, index_16, prefix, index_16));
+                }
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_U16) {
+                if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_S16) {
+                    should_gen_pack_unpack[GEN_PACK_4XS16] = true;
+                    should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
+                    writer.add_to_current_body(fmt::format("h16{}{} = unpack4xU16(pack4xS16(i16{}{}));", prefix, index_16, prefix, index_16));
+                }
+            }
+
+            if (res_info.decl & ShaderVariableVec4Info::DECLARED_S16) {
+                if (res_info.original_type == ShaderVariableVec4Info::DIRTY_TYPE_U16) {
+                    should_gen_pack_unpack[GEN_PACK_4XU16] = true;
+                    should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
+                    writer.add_to_current_body(fmt::format("h16{}{} = unpack4xS16(pack4xU16(u16{}{}));", prefix, index_16, prefix, index_16));
                 }
             }
 
@@ -649,9 +708,9 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
                             target_bank.prefix, var_key, static_cast<char>('w' + (shifted_load_index + 1) % 4)));
 
                         if (dt == DataType::UINT8) {
-                            should_gen_pack_unpack[GEN_UNPACK_U8] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XU8] = true;
                         } else {
-                            should_gen_pack_unpack[GEN_UNPACK_S8] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XS8] = true;
                         }
                     }
                     target_bank.variables[var_key].declared |= shift_mask;
@@ -669,7 +728,7 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
                             writer.add_to_current_body(fmt::format("{}{}.xyz = unpack3xFX10({}{}.{});", output_prefix, real_load_index,
                                 target_bank.prefix, var_key, static_cast<char>('w' + (shifted_load_index + 1) % 4)));
 
-                            should_gen_pack_unpack[GEN_UNPACK_FX10] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_3XFX10] = true;
                         }
                         target_bank.variables[var_key].declared |= shift_mask;
                     } else {
@@ -714,23 +773,21 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
             bool load_begin = (real_load_index % 8) < 4;
             if (load_begin && ((target_bank.variables[var_key].declared & mask_decl_1) == 0)) {
                 writer.add_declaration(fmt::format("{}vec4 {}{};", vprefix, output_prefix, (real_load_index / 4) * 4));
-
                 target_bank.variables[var_key].declared |= mask_decl_1;
 
                 if (target_bank.variables[var_key].declared & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     if (dt == DataType::F16) {
-                        should_gen_pack_unpack[GEN_UNPACK_F16] = true;
-                        writer.add_to_current_body(fmt::format("{}{} = vec4(unpack2xF16({}{}.x), unpack2xF16({}{}.y));", output_prefix,
-                            real_load_index / 4 * 4, target_bank.prefix, var_key, target_bank.prefix, var_key));
+                        should_gen_pack_unpack[GEN_UNPACK_4XF16] = true;
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4xF16({}{}.xy);", output_prefix,
+                            real_load_index / 4 * 4, target_bank.prefix, var_key));
                     } else {
                         if (dt == DataType::UINT16) {
-                            should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
                         } else {
-                            should_gen_pack_unpack[GEN_UNPACK_S16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
                         }
-                        writer.add_to_current_body(fmt::format("{}{} = {}vec4(unpack2x{}16({}{}.x), unpack2x{}16({}{}.y));", output_prefix,
-                            real_load_index / 4 * 4, output_prefix[0], (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key,
-                            (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key));
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4x{}16({}{}.xy);", output_prefix,
+                            real_load_index / 4 * 4, (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key));
                     }
                 }
             }
@@ -740,18 +797,17 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
 
                 if (target_bank.variables[var_key].declared & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     if (dt == DataType::F16) {
-                        should_gen_pack_unpack[GEN_UNPACK_F16] = true;
-                        writer.add_to_current_body(fmt::format("{}{} = vec4(unpack2xF16({}{}.z), unpack2xF16({}{}.w));", output_prefix,
-                            (real_load_index / 4 + (load_begin && load_to_another_vec ? 1 : 0)) * 4, target_bank.prefix, var_key, target_bank.prefix, var_key));
+                        should_gen_pack_unpack[GEN_UNPACK_4XF16] = true;
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4xF16({}{}.zw);", output_prefix,
+                            (real_load_index / 4 + (load_begin && load_to_another_vec ? 1 : 0)) * 4, target_bank.prefix, var_key));
                     } else {
                         if (dt == DataType::UINT16) {
-                            should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
                         } else {
-                            should_gen_pack_unpack[GEN_UNPACK_S16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
                         }
-                        writer.add_to_current_body(fmt::format("{}{} = {}vec4(unpack2x{}16({}{}.z), unpack2x{}16({}{}.w));", output_prefix,
-                            (real_load_index / 4 + (load_begin && load_to_another_vec ? 1 : 0)) * 4, output_prefix[0], (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key,
-                            (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key));
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4x{}16({}{}.zw);", output_prefix,
+                            (real_load_index / 4 + (load_begin && load_to_another_vec ? 1 : 0)) * 4, (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key));
                     }
                 }
             }
@@ -761,18 +817,17 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
 
                 if (target_bank.variables[var_key + 4].declared & ShaderVariableVec4Info::DECLARED_FLOAT4) {
                     if (dt == DataType::F16) {
-                        should_gen_pack_unpack[GEN_UNPACK_F16] = true;
-                        writer.add_to_current_body(fmt::format("{}{} = vec4(unpack2xF16({}{}.x), unpack2xF16({}{}.y));", output_prefix,
-                            real_load_index / 4 * 4 + 4, target_bank.prefix, var_key + 4, target_bank.prefix, var_key + 4));
+                        should_gen_pack_unpack[GEN_UNPACK_4XF16] = true;
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4xF16({}{}.xy);", output_prefix,
+                            real_load_index / 4 * 4 + 4, target_bank.prefix, var_key + 4));
                     } else {
                         if (dt == DataType::UINT16) {
-                            should_gen_pack_unpack[GEN_UNPACK_U16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XU16] = true;
                         } else {
-                            should_gen_pack_unpack[GEN_UNPACK_S16] = true;
+                            should_gen_pack_unpack[GEN_UNPACK_4XS16] = true;
                         }
-                        writer.add_to_current_body(fmt::format("{}{} = {}vec4(unpack2x{}16({}{}.x), unpack2x{}16({}{}.y));", output_prefix,
-                            real_load_index / 4 * 4 + 4, output_prefix[0], (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key + 4,
-                            (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key + 4));
+                        writer.add_to_current_body(fmt::format("{}{} = unpack4x{}16({}{}.xy);", output_prefix,
+                            real_load_index / 4 * 4 + 4, (dt == DataType::UINT16) ? 'U' : 'S', target_bank.prefix, var_key + 4));
                     }
                 }
             }
@@ -805,7 +860,7 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
 
                     // We only sometimes copy data out when it's needed. PA is always copied
                     for (auto &buffer : program_input.uniform_buffers) {
-                        if ((rounded_index >= buffer.reg_start_offset) && (rounded_index < (buffer.reg_start_offset + buffer.reg_block_size))) {
+                        if ((sa_num >= buffer.reg_start_offset) && (sa_num < (buffer.reg_start_offset + buffer.reg_block_size))) {
                             std::string buffer_access = fmt::format("{}.{}", is_vertex ? VERTEX_UB_GROUP_NAME : FRAGMENT_UB_GROUP_NAME,
                                 fmt::format("{}{}", UB_MEMBER_NAME_FORMAT, buffer.index));
 
@@ -934,6 +989,32 @@ void ShaderVariables::prepare_variables(ShaderVariableBank &target_bank, const D
                     } else if (swizz[i] <= SwizzleChannel::C_W) {
                         has_high = true;
                     }
+                }
+            }
+
+            if (has_low && has_high && (odd_index % 2) == 0 && info.dirty[odd_index] == info.dirty[odd_index + 1] && ((info.dirty[odd_index] != type_dirty) && (info.dirty[odd_index] != -1))) {
+                int and_decl = 0;
+                int or_decl = 0;
+                if (info.declared & (ShaderVariableVec4Info::DECLARED_HALF4_N2 | ShaderVariableVec4Info::DECLARED_HALF4_N1)) {
+                    and_decl |= ShaderVariableVec4Info::DECLARED_HALF4_N2 | ShaderVariableVec4Info::DECLARED_HALF4_N1;
+                    or_decl |= ShaderVariableVec4Info::DECLARED_HALF4;
+                }
+
+                if (info.declared & (ShaderVariableVec4Info::DECLARED_U16_N2 | ShaderVariableVec4Info::DECLARED_U16_N1)) {
+                    and_decl |= ShaderVariableVec4Info::DECLARED_U16_N2 | ShaderVariableVec4Info::DECLARED_U16_N1;
+                    or_decl |= ShaderVariableVec4Info::DECLARED_U16;
+                }
+
+                if (info.declared & (ShaderVariableVec4Info::DECLARED_S16_N2 | ShaderVariableVec4Info::DECLARED_S16_N1)) {
+                    and_decl |= ShaderVariableVec4Info::DECLARED_S16_N2 | ShaderVariableVec4Info::DECLARED_S16_N1;
+                    or_decl |= ShaderVariableVec4Info::DECLARED_S16;
+                }
+
+                if (and_decl != 0 || or_decl != 0) {
+                    restore_infos.push({ info, odd_index, info.dirty[odd_index], var_key, (info.declared & ~and_decl) | or_decl });
+                    info.dirty[odd_index] = -1;
+                    info.dirty[odd_index + 1] = -1;
+                    break;
                 }
             }
 
@@ -1445,7 +1526,7 @@ void ShaderVariables::store(const Operand &dest, const std::string &rhs, const s
             writer.add_to_current_body(fmt::format("{}{}.{} = {};", var_name, only_use_this_vec4 ? (real_load_index / 4) * 4 : (real_load_index / 4 + 1) * 4, swizz_str, rhs_modded));
         } else {
             int num_comp_count = dest_mask_to_comp_count(dest_mask);
-            std::string temp_name = fmt::format("{}temp{}", is_integer_data_type(dest.type) ? "i" : "", num_comp_count);
+            std::string temp_name = fmt::format("temp{}", num_comp_count);
 
             // We must separate it out
             writer.add_to_current_body(fmt::format("{} = {};", temp_name, rhs_modded));
@@ -1467,7 +1548,7 @@ void ShaderVariables::store(const Operand &dest, const std::string &rhs, const s
                 }
             }
 
-            writer.add_to_current_body(fmt::format("{}{}.{} = temp{}.{};", var_name, (real_load_index / 4 + 1) * 4, swizz_str, num_comp_count, swizz_str_full.substr(4 - mod, mod)));
+            writer.add_to_current_body(fmt::format("{}{}.{} = {}.{};", var_name, (real_load_index / 4 + 1) * 4, swizz_str, temp_name, swizz_str_full.substr(4 - mod, mod - (4 - num_comp_count))));
         }
     }
 }
@@ -1477,7 +1558,7 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("vec2 clampf16(vec2 value) { return unpackHalf2x16(packHalf2x16(value)); }");
         writer.add_declaration("float clampf16(float value) { return clampf16(vec2(value, 0.0)).x; }");
         writer.add_declaration("vec3 clampf16(vec3 value) { return vec3(clampf16(value.xy), clampf16(value.z)); }");
-        writer.add_declaration("vec4 clampf16(vec4 value) { return vec4(clampf16(value.xy), clampf16(value.zw)); }");
+        writer.add_declaration("vec4 clampf16(vec4 value) { return vec4(clampf16(value.xy), clampf16(value.zw)); }\n");
     }
 
     if (should_gen_vecfloat_bitcast[0]) {
@@ -1492,7 +1573,7 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("int clampU8(float value) { return clamp(int(value), 0, 255); }");
         writer.add_declaration("ivec2 clampU8(vec2 value) { return clamp(ivec2(value), ivec2(0), ivec2(255)); }");
         writer.add_declaration("ivec3 clampU8(vec3 value) { return clamp(ivec3(value), ivec3(0), ivec3(255)); }");
-        writer.add_declaration("ivec4 clampU8(vec4 value) { return clamp(ivec4(value), ivec4(0), ivec4(255)); }");
+        writer.add_declaration("ivec4 clampU8(vec4 value) { return clamp(ivec4(value), ivec4(0), ivec4(255)); }\n");
     }
 
     if (should_gen_vecfloat_bitcast[1]) {
@@ -1507,7 +1588,7 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("int clampS8(float value) { return clamp(int(value), -128, 127); }");
         writer.add_declaration("ivec2 clampS8(vec2 value) { return clamp(ivec2(value), ivec2(-128), ivec2(127)); }");
         writer.add_declaration("ivec3 clampS8(vec3 value) { return clamp(ivec3(value), ivec3(-128), ivec3(127)); }");
-        writer.add_declaration("ivec4 clampS8(vec4 value) { return clamp(ivec4(value), ivec4(-128), ivec4(127)); }");
+        writer.add_declaration("ivec4 clampS8(vec4 value) { return clamp(ivec4(value), ivec4(-128), ivec4(127)); }\n");
     }
 
     if (should_gen_vecfloat_bitcast[2]) {
@@ -1522,7 +1603,7 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("int clampU16(float value) { return clamp(int(value), 0, 65535); }");
         writer.add_declaration("ivec2 clampU16(vec2 value) { return clamp(ivec2(value), ivec2(0), ivec2(65535)); }");
         writer.add_declaration("ivec3 clampU16(vec3 value) { return clamp(ivec3(value), ivec3(0), ivec3(65535)); }");
-        writer.add_declaration("ivec4 clampU16(vec4 value) { return clamp(ivec4(value), ivec4(0), ivec4(65535)); }");
+        writer.add_declaration("ivec4 clampU16(vec4 value) { return clamp(ivec4(value), ivec4(0), ivec4(65535)); }\n");
     }
 
     if (should_gen_vecfloat_bitcast[3]) {
@@ -1537,86 +1618,156 @@ void ShaderVariables::generate_helper_functions() {
         writer.add_declaration("int clampS16(float value) { return clamp(int(value), -32768, 32767); }");
         writer.add_declaration("ivec2 clampS16(vec2 value) { return clamp(ivec2(value), ivec2(-32768), ivec2(32767)); }");
         writer.add_declaration("ivec3 clampS16(vec3 value) { return clamp(ivec3(value), ivec3(-32768), ivec3(32767)); }");
-        writer.add_declaration("ivec4 clampS16(vec4 value) { return clamp(ivec4(value), ivec4(-32768), ivec4(32767)); }");
+        writer.add_declaration("ivec4 clampS16(vec4 value) { return clamp(ivec4(value), ivec4(-32768), ivec4(32767)); }\n");
     }
 
-    if (should_gen_pack_unpack[GEN_PACK_U8]) {
+    if (should_gen_pack_unpack[GEN_PACK_4XU8]) {
         writer.add_declaration("float pack4xU8(uvec4 val) {");
-        writer.add_declaration("\tuint result = bitfieldInsert(0U, bitfieldExtract(val.x, 0, 8), 0, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.y, 0, 8), 8, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.z, 0, 8), 16, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.w, 0, 8), 24, 8);");
-        writer.add_declaration("\treturn uintBitsToFloat(result);");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFFu;");
+        writer.add_declaration("uint result = bitfieldInsert(bitfieldInsert(bitfieldInsert(val.x, val.y, 8, 8), val.z, 16, 8), val.w, 24, 8);");
+        writer.add_declaration("return uintBitsToFloat(result);");
+        writer.dedent_declaration();
         writer.add_declaration("}\n");
     }
 
-    if (should_gen_pack_unpack[GEN_PACK_S8]) {
+    if (should_gen_pack_unpack[GEN_PACK_4XS8]) {
         writer.add_declaration("float pack4xS8(ivec4 val) {");
-        writer.add_declaration("\tint result = bitfieldInsert(0, bitfieldExtract(val.x, 0, 8), 0, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.y, 0, 8), 8, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.z, 0, 8), 16, 8);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.w, 0, 8), 24, 8);");
-        writer.add_declaration("\treturn intBitsToFloat(result);");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFF;");
+        writer.add_declaration("int result = bitfieldInsert(bitfieldInsert(bitfieldInsert(val.x, val.y, 8, 8), val.z, 16, 8), val.w, 24, 8);");
+        writer.add_declaration("return intBitsToFloat(result);");
+        writer.dedent_declaration();
         writer.add_declaration("}\n");
     }
 
-    if (should_gen_pack_unpack[GEN_UNPACK_U8]) {
+    if (should_gen_pack_unpack[GEN_UNPACK_4XU8]) {
         writer.add_declaration("uvec4 unpack4xU8(float val) {");
-        writer.add_declaration("\tuint cc = floatBitsToUint(val);");
-        writer.add_declaration("\treturn uvec4(bitfieldExtract(cc, 0, 8), bitfieldExtract(cc, 8, 8), bitfieldExtract(cc, 16, 8), bitfieldExtract(cc, 24, 8));");
+        writer.indent_declaration();
+        writer.add_declaration("uint cc = floatBitsToUint(val);");
+        writer.add_declaration("return uvec4(bitfieldExtract(cc, 0, 8), bitfieldExtract(cc, 8, 8), bitfieldExtract(cc, 16, 8), bitfieldExtract(cc, 24, 8));");
+        writer.dedent_declaration();
         writer.add_declaration("}\n");
     }
 
-    if (should_gen_pack_unpack[GEN_UNPACK_S8]) {
+    if (should_gen_pack_unpack[GEN_UNPACK_4XS8]) {
         writer.add_declaration("ivec4 unpack4xS8(float val) {");
-        writer.add_declaration("\tint cc = floatBitsToInt(val);");
-        writer.add_declaration("\treturn ivec4(bitfieldExtract(cc, 0, 8), bitfieldExtract(cc, 8, 8), bitfieldExtract(cc, 16, 8), bitfieldExtract(cc, 24, 8));");
+        writer.indent_declaration();
+        writer.add_declaration("int cc = floatBitsToInt(val);");
+        writer.add_declaration("return ivec4(bitfieldExtract(cc, 0, 8), bitfieldExtract(cc, 8, 8), bitfieldExtract(cc, 16, 8), bitfieldExtract(cc, 24, 8));");
+        writer.dedent_declaration();
         writer.add_declaration("}\n");
     }
 
-    if (should_gen_pack_unpack[GEN_PACK_U16]) {
-        writer.add_declaration("float pack2xU16(uvec2 val) {");
-        writer.add_declaration("\tuint result = bitfieldInsert(0U, bitfieldExtract(val.x, 0, 16), 0, 16);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.y, 0, 16), 16, 16);");
-        writer.add_declaration("\treturn uintBitsToFloat(result);");
-        writer.add_declaration("}\n");
-    }
-
-    if (should_gen_pack_unpack[GEN_PACK_S16]) {
-        writer.add_declaration("float pack2xS16(ivec2 val) {");
-        writer.add_declaration("\tint result = bitfieldInsert(0, bitfieldExtract(val.x, 0, 16), 0, 16);");
-        writer.add_declaration("\tresult = bitfieldInsert(result, bitfieldExtract(val.y, 0, 16), 16, 16);");
-        writer.add_declaration("\treturn intBitsToFloat(result);");
-        writer.add_declaration("}\n");
-    }
-
-    if (should_gen_pack_unpack[GEN_UNPACK_U16]) {
-        writer.add_declaration("uvec2 unpack2xU16(float val) {");
-        writer.add_declaration("\tuint cc = floatBitsToUint(val);");
-        writer.add_declaration("\treturn uvec2(bitfieldExtract(cc, 0, 16), bitfieldExtract(cc, 16, 16));");
-        writer.add_declaration("}\n");
-    }
-
-    if (should_gen_pack_unpack[GEN_UNPACK_S16]) {
-        writer.add_declaration("ivec2 unpack2xS16(float val) {");
-        writer.add_declaration("\tint cc = floatBitsToInt(val);");
-        writer.add_declaration("\treturn ivec2(bitfieldExtract(cc, 0, 16), bitfieldExtract(cc, 16, 16));");
-        writer.add_declaration("}\n");
-    }
-
-    if (should_gen_pack_unpack[GEN_UNPACK_FX10]) {
-        writer.add_declaration("ivec4 unpack3xFX10(float val) {");
-        writer.add_declaration("\tint cc = floatBitsToInt(val);");
-        writer.add_declaration("\treturn ivec3(bitfieldExtract(cc, 0, 10), bitfieldExtract(cc, 10, 10), bitfieldExtract(cc, 20, 10));");
-        writer.add_declaration("}\n");
-    }
-
-    if (should_gen_pack_unpack[GEN_PACK_F16]) {
+    if (should_gen_pack_unpack[GEN_PACK_2XF16]) {
         writer.add_declaration("float pack2xF16(vec2 val) { return uintBitsToFloat(packHalf2x16(val)); }\n");
     }
 
-    if (should_gen_pack_unpack[GEN_UNPACK_F16]) {
+    if (should_gen_pack_unpack[GEN_PACK_4XF16]) {
+        writer.add_declaration("vec2 pack4xF16(vec4 val) { return vec2(uintBitsToFloat(packHalf2x16(val.xy)), uintBitsToFloat(packHalf2x16(val.zw))); }\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_UNPACK_2XF16]) {
         writer.add_declaration("vec2 unpack2xF16(float val) { return unpackHalf2x16(floatBitsToUint(val)); }\n");
+    }
+    
+    if (should_gen_pack_unpack[GEN_UNPACK_4XF16]) {
+        writer.add_declaration("vec4 unpack4xF16(vec2 val) { return vec4(unpackHalf2x16(floatBitsToUint(val.x)), unpackHalf2x16(floatBitsToUint(val.y))); }\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_PACK_2XU16]) {
+        writer.add_declaration("float pack2xU16(uvec2 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFFFFu;");
+        writer.add_declaration("uint result = bitfieldInsert(val.x, val.y, 16, 16);");
+        writer.add_declaration("return uintBitsToFloat(result);");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_PACK_4XU16]) {
+        writer.add_declaration("vec2 pack4xU16(uvec4 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFFFFu;");
+        writer.add_declaration("uvec2 result;");
+        writer.add_declaration("result.x = bitfieldInsert(val.x, val.y, 16, 16);");
+        writer.add_declaration("result.y = bitfieldInsert(val.z, val.w, 16, 16);");
+        writer.add_declaration("return uintBitsToFloat(result);");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_PACK_2XS16]) {
+        writer.add_declaration("float pack2xS16(ivec2 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFFFF;");
+        writer.add_declaration("int result = bitfieldInsert(val.x, val.y, 16, 16);");
+        writer.add_declaration("return intBitsToFloat(result);");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_PACK_4XS16]) {
+        writer.add_declaration("vec2 pack4xS16(ivec4 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("val &= 0xFFFF;");
+        writer.add_declaration("ivec2 result;");
+        writer.add_declaration("result.x = bitfieldInsert(val.x, val.y, 16, 16);");
+        writer.add_declaration("result.y = bitfieldInsert(val.z, val.w, 16, 16);");
+        writer.add_declaration("return intBitsToFloat(result);");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_UNPACK_2XU16]) {
+        writer.add_declaration("uvec2 unpack2xU16(float val) {");
+        writer.indent_declaration();
+        writer.add_declaration("uint cc = floatBitsToUint(val);");
+        writer.add_declaration("return uvec2(bitfieldExtract(cc, 0, 16), bitfieldExtract(cc, 16, 16));");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+        
+    if (should_gen_pack_unpack[GEN_UNPACK_4XU16]) {
+        writer.add_declaration("uvec4 unpack4xU16(vec2 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("uvec2 cc = floatBitsToUint(val);");
+        writer.add_declaration("uvec4 result;");
+        writer.add_declaration("result.xy = uvec2(bitfieldExtract(cc.x, 0, 16), bitfieldExtract(cc.x, 16, 16));");
+        writer.add_declaration("result.zw = uvec2(bitfieldExtract(cc.y, 0, 16), bitfieldExtract(cc.y, 16, 16));");
+        writer.add_declaration("return result;");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_UNPACK_2XS16]) {
+        writer.add_declaration("ivec2 unpack2xS16(float val) {");
+        writer.indent_declaration();
+        writer.add_declaration("int cc = floatBitsToInt(val);");
+        writer.add_declaration("return ivec2(bitfieldExtract(cc, 0, 16), bitfieldExtract(cc, 16, 16));");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_UNPACK_4XS16]) {
+        writer.add_declaration("ivec4 unpack4xS16(vec2 val) {");
+        writer.indent_declaration();
+        writer.add_declaration("ivec2 cc = floatBitsToInt(val);");
+        writer.add_declaration("ivec4 result;");
+        writer.add_declaration("result.xy = ivec2(bitfieldExtract(cc.x, 0, 16), bitfieldExtract(cc.x, 16, 16));");
+        writer.add_declaration("result.zw = ivec2(bitfieldExtract(cc.y, 0, 16), bitfieldExtract(cc.y, 16, 16));");
+        writer.add_declaration("return result;");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
+    }
+
+    if (should_gen_pack_unpack[GEN_UNPACK_3XFX10]) {
+        writer.add_declaration("ivec4 unpack3xFX10(float val) {");
+        writer.indent_declaration();
+        writer.add_declaration("int cc = floatBitsToInt(val);");
+        writer.add_declaration("return ivec3(bitfieldExtract(cc, 0, 10), bitfieldExtract(cc, 10, 10), bitfieldExtract(cc, 20, 10));");
+        writer.dedent_declaration();
+        writer.add_declaration("}\n");
     }
 }
 

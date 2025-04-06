@@ -64,7 +64,11 @@ struct ShaderVariableVec4Info {
         DECLARED_FX10_N3 = 1 << 17,
         // Not valid!
         DECLARED_FX10_N4 = 1 << 18,
-        DECLARED_FX10_SHIFT_START = 15
+        DECLARED_FX10_SHIFT_START = 15,
+        // Optimization for enabling unpack4x#16 functions
+        DECLARED_HALF4 = 1 << 19,
+        DECLARED_U16 = 1 << 20,
+        DECLARED_S16 = 1 << 21
     };
 
     std::uint32_t declared = 0;
@@ -115,17 +119,23 @@ private:
 
 public:
     enum GenPackUnpackKind {
-        GEN_PACK_U8,
-        GEN_PACK_S8,
-        GEN_UNPACK_U8,
-        GEN_UNPACK_S8,
-        GEN_PACK_F16,
-        GEN_UNPACK_F16,
-        GEN_PACK_U16,
-        GEN_PACK_S16,
-        GEN_UNPACK_S16,
-        GEN_UNPACK_U16,
-        GEN_UNPACK_FX10,
+        GEN_PACK_4XU8,
+        GEN_PACK_4XS8,
+        GEN_UNPACK_4XU8,
+        GEN_UNPACK_4XS8,
+        GEN_PACK_2XF16,
+        GEN_PACK_4XF16,
+        GEN_UNPACK_2XF16,
+        GEN_UNPACK_4XF16,
+        GEN_PACK_2XU16,
+        GEN_PACK_4XU16,
+        GEN_PACK_2XS16,
+        GEN_PACK_4XS16,
+        GEN_UNPACK_2XU16,
+        GEN_UNPACK_4XU16,
+        GEN_UNPACK_2XS16,
+        GEN_UNPACK_4XS16,
+        GEN_UNPACK_3XFX10,
         GEN_MAX
     };
 
