@@ -141,6 +141,7 @@ public:
 
     bool should_gen_pack_unpack[GEN_MAX];
     bool should_gen_textureprojcube;
+    bool should_gen_texture_get_bilinear_coefficients;
     explicit ShaderVariables(CodeWriter &writer, const ProgramInput &input, const bool is_vertex);
 
     std::string load(const Operand &op, const std::uint8_t dest_mask, const int shift_offset);

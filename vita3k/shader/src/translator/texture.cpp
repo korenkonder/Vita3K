@@ -69,13 +69,10 @@ bool USSETranslatorVisitor::smp(
         // PA can't be used in the secondary program
         decoded_inst.opr.dest.bank = RegisterBank::SECATTR;
     decoded_inst.opr.dest.num = dest_n;
-    decoded_inst.opr.dest.type = tb_dest_fmt[fconv_type];
 
-    // Decode src0
-    decoded_inst.opr.src0 = decode_src0(decoded_inst.opr.src0, src0_n, src0_bank, src0_ext, true, 8, m_second_program);
-    decoded_inst.opr.src0.type = (src0_type == 0) ? DataType::F32 : ((src0_type == 1) ? DataType::F16 : DataType::C10);
-
-    decoded_inst.opr.src1 = decode_src12(decoded_inst.opr.src1, src1_n, src1_bank, src1_ext, true, 8, m_second_program);
+    if (fconv_type != 2) {
+        decoded_inst.opr.dest.type = tb_dest_fmt[fconv_type];
+    }
 
     // Base 0, turn it to base 1
     dim += 1;

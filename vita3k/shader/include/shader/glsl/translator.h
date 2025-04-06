@@ -597,7 +597,7 @@ private:
 
     std::string vtst_impl(Instruction inst, ExtPredicate pred, int zero_test, int sign_test, Imm4 load_mask, bool mask);
     // extra1 is either lod or ddx, extra2 is ddy
-    std::string do_fetch_texture(const std::string tex, std::string coord_name, const DataType dest_type, const int lod_mode,
+    std::string do_fetch_texture(const std::string tex, const int comp_count, std::string coord_name, const DataType dest_type, const int lod_mode,
         const std::string extra1 = "", const std::string extra2 = "", const int gather4_comp = -1);
 };
 

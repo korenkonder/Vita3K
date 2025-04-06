@@ -199,16 +199,29 @@ bool USSETranslatorVisitorSpirv::smp(
     Imm7 src0_n,
     Imm7 src1_n,
     Imm7 src2_n) {
-    if (!USSETranslatorVisitor::smp(pred, skipinv, nosched, syncstart, minpack, src0_ext, src2_ext, src2_ext, fconv_type,
+    Operand temp_src1;
+    temp_src1 = shader::usse::decode_src12(temp_src1, src1_n, src1_bank, src1_ext, true, 8, m_second_program);
+
+    bool is_texture_buffer_load = false;
+    if (!m_spirv_params.samplers.contains(temp_src1.num))
+        is_texture_buffer_load = true;
+
+    // if this is a texture buffer load, just attribute the first available sampler to it
+    const SamplerInfo &sampler = is_texture_buffer_load ? m_spirv_params.samplers.begin()->second : m_spirv_params.samplers.at(temp_src1.num);
+
+    if (fconv_type == 2) {
+        decoded_inst.opr.dest.type = sampler.component_type;
+    }
+
+    if (!USSETranslatorVisitor::smp(pred, skipinv, nosched, syncstart, minpack, src0_ext, src1_ext, src2_ext, fconv_type,
             mask_count, dim, lod_mode, dest_use_pa, sb_mode, src0_type, src0_bank, drc_sel, src1_bank, src2_bank,
             dest_n, src0_n, src1_n, src2_n)) {
         return false;
     }
 
-    bool is_texture_buffer_load = false;
     // only used for a load using the texture buffer
     spv::Id texture_index = 0;
-    if (!m_spirv_params.samplers.contains(decoded_inst.opr.src1.num)) {
+    if (is_texture_buffer_load) {
         if (m_spirv_params.texture_buffer_sa_offset == -1) {
             LOG_ERROR("Can't get the sampler (sampler doesn't exist!)");
             return true;
@@ -219,16 +232,9 @@ bool USSETranslatorVisitorSpirv::smp(
             return true;
         }
 
-        is_texture_buffer_load = true;
         decoded_inst.opr.src1.type = DataType::INT32;
         texture_index = load(decoded_inst.opr.src1, 0b1);
     }
-
-    // if this is a texture buffer load, just attribute the first available sampler to it
-    const SamplerInfo &sampler = is_texture_buffer_load ? m_spirv_params.samplers.begin()->second : m_spirv_params.samplers.at(decoded_inst.opr.src1.num);
-
-    if (decoded_inst.opr.dest.type == DataType::UNK)
-        decoded_inst.opr.dest.type = sampler.component_type;
 
     // LOD mode: none, bias, replace, gradient
     if ((lod_mode != 0) && (lod_mode != 2) && (lod_mode != 3)) {
