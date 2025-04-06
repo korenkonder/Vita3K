@@ -689,10 +689,14 @@ static void create_program_needed_functions(const ProgramState &state, const Pro
             std::uint32_t real_size = static_cast<std::uint32_t>((input.uniform_buffers[i].size + 3) / 4 * 16);
             writer.add_declaration(fmt::format("if ((offset >= {}) && (offset < {})) {{", base, base + real_size));
             writer.indent_declaration();
-            if (base != 0)
-                writer.add_declaration(fmt::format("offset -= {};", base));
-            writer.add_declaration("int vec_index = offset / 16;");
-            writer.add_declaration("int bytes_in_vec = offset - vec_index * 16;");
+            if (base != 0) {
+                writer.add_declaration(fmt::format("int base_offset = offset - {};", base));
+                writer.add_declaration("int vec_index = base_offset / 16;");
+                writer.add_declaration("int bytes_in_vec = base_offset - vec_index * 16;");
+            } else {
+                writer.add_declaration("int vec_index = offset / 16;");
+                writer.add_declaration("int bytes_in_vec = offset - vec_index * 16;");
+            }
             writer.add_declaration("int comp_in_vec = bytes_in_vec / 4;");
             writer.add_declaration("int start_byte_in_comp = bytes_in_vec - comp_in_vec * 4;");
             writer.add_declaration("int lshift_amount = 4 - start_byte_in_comp;");
