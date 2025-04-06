@@ -104,13 +104,15 @@ static void create_uniform_buffers(CodeWriter &writer, const SceGxmProgram &prog
     }
 
     writer.add_declaration(fmt::format("layout (std140, binding = {}) buffer {}Type {{", program.is_vertex() ? 0 : 1, program.is_vertex() ? VERTEX_UB_GROUP_NAME : FRAGMENT_UB_GROUP_NAME));
+    writer.indent_declaration();
     std::uint32_t last_offset = 0;
     for (auto [buffer_index, buffer_size] : buffer_sizes) {
-        writer.add_declaration(fmt::format("\tvec4 buffer{}[{}];", buffer_index, buffer_size));
+        writer.add_declaration(fmt::format("vec4 buffer{}[{}];", buffer_index, buffer_size));
         buffer_bases.emplace(buffer_index, last_offset);
 
         last_offset += buffer_size * 16;
     }
+    writer.dedent_declaration();
 
     writer.add_declaration(fmt::format("}} {};\n", program.is_vertex() ? VERTEX_UB_GROUP_NAME : FRAGMENT_UB_GROUP_NAME));
 }
@@ -438,21 +440,25 @@ static void create_parameters(ProgramState &state, CodeWriter &writer, ShaderVar
     if (program.is_vertex()) {
         // Add vertex render info
         writer.add_declaration("layout (std140, binding = 2) uniform GxmRenderVertBufferBlock {");
-        writer.add_declaration("\tvec4 viewport_flip;");
-        writer.add_declaration("\tfloat viewport_flag;");
-        writer.add_declaration("\tfloat screen_width;");
-        writer.add_declaration("\tfloat screen_height;");
-        writer.add_declaration("\tfloat z_offset;");
-        writer.add_declaration("\tfloat z_scale;");
+        writer.indent_declaration();
+        writer.add_declaration("vec4 viewport_flip;");
+        writer.add_declaration("float viewport_flag;");
+        writer.add_declaration("float screen_width;");
+        writer.add_declaration("float screen_height;");
+        writer.add_declaration("float z_offset;");
+        writer.add_declaration("float z_scale;");
+        writer.dedent_declaration();
         writer.add_declaration("} renderVertInfo;");
     } else {
         // Add fragment render info
         writer.add_declaration("layout (std140, binding = 3) uniform GxmRenderFragBufferBlock {");
-        writer.add_declaration("\tfloat back_disabled;");
-        writer.add_declaration("\tfloat front_disabled;");
-        writer.add_declaration("\tfloat writing_mask;");
-        writer.add_declaration("\tfloat use_raw_image;");
-        writer.add_declaration("\tint res_multiplier;");
+        writer.indent_declaration();
+        writer.add_declaration("float back_disabled;");
+        writer.add_declaration("float front_disabled;");
+        writer.add_declaration("float writing_mask;");
+        writer.add_declaration("float use_raw_image;");
+        writer.add_declaration("int res_multiplier;");
+        writer.dedent_declaration();
         writer.add_declaration("} renderFragInfo;");
 
         create_fragment_inputs(writer, params, features, translation_state, program);
