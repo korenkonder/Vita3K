@@ -171,8 +171,8 @@ static void create_fragment_inputs(CodeWriter &writer, ShaderVariables &variable
             writer.add_declaration(create_builtin_sampler(writer, features, translation_state, COLOR_ATTACHMENT_TEXTURE_SLOT_IMAGE, "f_colorAttachment"));
             writer.add_declaration("");
 
-            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_U8] = true;
-            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_U16] = true;
+            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_4XU8] = true;
+            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_2XU16] = true;
 
             if (features.preserve_f16_nan_as_u16) {
                 writer.add_declaration(fmt::format("layout (binding = {}, rgba16ui) uniform uimage2D f_colorAttachment_rawUI;", COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE));
