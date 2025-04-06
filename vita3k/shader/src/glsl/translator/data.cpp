@@ -187,19 +187,13 @@ bool USSETranslatorVisitorGLSL::vpck(
         return false;
     }
 
-    std::string vec_prefix_str = is_unsigned_integer_data_type(decoded_inst.opr.src1.type) ? "u" : (is_signed_integer_data_type(decoded_inst.opr.src1.type) ? "i" : "");
+    const std::string vec_prefix_str = is_unsigned_integer_data_type(decoded_inst.opr.src1.type) ? "u" : (is_signed_integer_data_type(decoded_inst.opr.src1.type) ? "i" : "");
 
     const std::size_t comp_count = dest_mask_to_comp_count(dest_mask);
 
     if (decoded_inst.opr.src2.type != DataType::UNK) {
-        Operand copy_src1 = decoded_inst.opr.src1;
-        Operand copy_src2 = decoded_inst.opr.src2;
-
-        copy_src1.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
-        copy_src2.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
-
-        std::string source1 = variables.load(copy_src1, 0b11, src1_repeat_offset);
-        std::string source2 = variables.load(copy_src2, 0b11, src2_repeat_offset);
+        Operand src1 = decoded_inst.opr.src1;
+        Operand src2 = decoded_inst.opr.src2;
 
         std::string swizz_str;
         for (std::uint32_t i = 0; i < 4; i++) {
@@ -208,7 +202,19 @@ bool USSETranslatorVisitorGLSL::vpck(
             }
         }
 
-        source = fmt::format("{}vec4({}, {}).{}", vec_prefix_str, source1, source2, swizz_str);
+        if ((src1.num % 4) == 0 && src1.bank == src2.bank && (src1.num + 2) == src2.num) {
+            std::string source = variables.load(src1, 0b1111, src1_repeat_offset);
+
+            source = fmt::format("{}.{}", source, swizz_str);
+        } else {
+            src1.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
+            src2.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
+
+            const std::string source1 = variables.load(src1, 0b11, src1_repeat_offset);
+            const std::string source2 = variables.load(src2, 0b11, src2_repeat_offset);
+
+            source = fmt::format("{}vec4({}, {}).{}", vec_prefix_str, source1, source2, swizz_str);
+        }
     }
 
     // source is float destination is int
