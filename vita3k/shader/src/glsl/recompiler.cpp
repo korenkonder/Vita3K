@@ -45,6 +45,7 @@ static constexpr int REG_PRED_COUNT = 4 * 4;
 static constexpr int REG_O_COUNT = 20 * 4;
 
 struct TranslationState {
+    std::string hash;
     std::string image_storage_format;
 };
 } // namespace shader
@@ -145,54 +146,88 @@ static std::string create_builtin_sampler(CodeWriter &writer, const FeatureState
         return fmt::format("layout (binding = {}, {}) uniform image2D {};", binding, format, name);
 }
 
+static std::string create_builtin_sampler_for_raw(CodeWriter &writer, const FeatureState &features, TranslationState &translation_state, const int binding, const std::string &name) {
+    return fmt::format("layout (binding = {}, rgba16ui) uniform image2D {};", binding, name);
+}
+
 static void create_fragment_inputs(CodeWriter &writer, ShaderVariables &variables, const FeatureState &features, TranslationState &translation_state, const SceGxmProgram &program) {
-    writer.add_declaration(create_builtin_sampler(writer, features, translation_state, MASK_TEXTURE_SLOT_IMAGE, "f_mask"));
-    writer.add_to_preload("if (all(lessThan(imageLoad(f_mask, ivec2(gl_FragCoord.xy / float(renderFragInfo.res_multiplier))), vec4(0.5)))) discard;");
+    if (features.use_mask_bit) {
+        // Discard masked fragments
+        writer.add_declaration(create_builtin_sampler(writer, features, translation_state, MASK_TEXTURE_SLOT_IMAGE, "f_mask"));
+        writer.add_to_preload("if (all(lessThan(imageLoad(f_mask, ivec2(gl_FragCoord.xy / float(renderFragInfo.res_multiplier))), vec4(0.5)))) discard;");
+    }
 
     if (program.is_frag_color_used()) {
+        // There might be a chance that this shader also reads from OUTPUT bank. We will load last state frag data
+        std::string source = "";
+
+        Operand target_to_store;
+
+        target_to_store.bank = RegisterBank::OUTPUT;
+        target_to_store.num = 0;
+        target_to_store.type = std::get<0>(shader::get_parameter_type_store_and_name(program.get_fragment_output_type()));
+        // if the shader tries to read a INT32 or UINT32, it means the raw content
+        if (target_to_store.type == DataType::INT32 || target_to_store.type == DataType::UINT32)
+            target_to_store.type = DataType::F32;
+
+        auto store_source_result = [&](const bool direct_store = false) {
+            if (!source.empty()) {
+                if (!direct_store && !is_float_data_type(target_to_store.type)) {
+                    source = variables.convert_to_int(source, 4, target_to_store.type, true);
+                }
+
+                variables.store(target_to_store, source, 0b1111, 0);
+            }
+        };
+
         if (features.direct_fragcolor) {
-            // The GPU supports gl_LastFragData. It's only OpenGL though
+            // The GPU supports gl_LastFragData.
             if (features.preserve_f16_nan_as_u16) {
-                writer.add_to_preload("if (renderFragInfo.use_raw_image >= 0.5) {");
-                writer.indent_preload();
-                writer.add_to_preload("o0 = gl_LastFragData[1].xyzw;");
-                writer.dedent_preload();
-                writer.add_to_preload("} else {");
-                writer.indent_preload();
-                writer.add_to_preload("o0 = gl_LastFragData[0];");
-                writer.dedent_preload();
-                writer.add_to_preload("}");
+                writer.add_to_current_body("if (renderFragInfo.use_raw_image >= 0.5) {");
+                writer.indent_current_body();
+                source = "gl_LastFragData[1]";
+                writer.dedent_current_body();
+                writer.add_to_current_body("} else {");
+                writer.indent_current_body();
+                source = "gl_LastFragData[0]";
+                writer.dedent_current_body();
+                writer.add_to_current_body("}");
             } else {
-                writer.add_to_preload("o0 = gl_LastFragData[0];");
+                source = "gl_LastFragData[0]";
             }
         } else if (features.support_shader_interlock || features.support_texture_barrier) {
+            // Create a global sampler, which is our color attachment
             writer.add_declaration(create_builtin_sampler(writer, features, translation_state, COLOR_ATTACHMENT_TEXTURE_SLOT_IMAGE, "f_colorAttachment"));
             writer.add_declaration("");
 
-            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_4XU8] = true;
-            variables.should_gen_pack_unpack[ShaderVariables::GEN_PACK_2XU16] = true;
-
             if (features.preserve_f16_nan_as_u16) {
-                writer.add_declaration(fmt::format("layout (binding = {}, rgba16ui) uniform uimage2D f_colorAttachment_rawUI;", COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE));
-                writer.add_to_preload("if (renderFragInfo.use_raw_image >= 0.5) {");
-                writer.indent_preload();
-                writer.add_to_preload("o0.xy = pack4xU16(imageLoad(f_colorAttachment_rawUI, ivec2(gl_FragCoord.xy)));");
-                writer.dedent_preload();
-                writer.add_to_preload("} else {");
-                writer.indent_preload();
-                writer.add_to_preload("o0.x = pack4xU8(uvec4(imageLoad(f_colorAttachment, ivec2(gl_FragCoord.xy)) * vec4(255.0)));");
-                writer.dedent_preload();
-                writer.add_to_preload("}");
-            } else {
-                writer.add_to_preload("o0.x = pack4xU8(uvec4(imageLoad(f_colorAttachment, ivec2(gl_FragCoord.xy)) * vec4(255.0)));");
-            }
+                writer.add_declaration(create_builtin_sampler_for_raw(writer, features, translation_state, COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE, "f_colorAttachment_rawUI"));
+                writer.add_declaration("");
 
-            variables.mark_f32_raw_dirty(RegisterBank::OUTPUT, 0);
-            variables.mark_f32_raw_dirty(RegisterBank::OUTPUT, 1);
+                writer.add_to_current_body("if (renderFragInfo.use_raw_image >= 0.5) {");
+                writer.indent_current_body();
+                source = "imageLoad(f_colorAttachment, ivec2(gl_FragCoord.xy))";
+                store_source_result();
+                writer.dedent_current_body();
+                writer.add_to_current_body("} else {");
+                writer.indent_current_body();
+                source = "imageLoad(f_colorAttachment_rawUI, ivec2(gl_FragCoord.xy))";
+                target_to_store.type = DataType::UINT16;
+                store_source_result(true);
+                writer.dedent_current_body();
+                writer.add_to_current_body("}");
+
+                // Generated here already, so empty it out to prevent further gen
+                source.clear();
+            } else {
+                source = "imageLoad(f_colorAttachment, ivec2(gl_FragCoord.xy))";
+            }
         } else {
-            // Try to initialize outs[0] to some nice value. In case the GPU has garbage data for our shader
-            writer.add_to_preload("o0 = vec4(0.0);");
+            // Try to initialize o0 to some nice value. In case the GPU has garbage data for our shader
+            source = "vec4(0.0)";
         }
+
+        store_source_result();
     }
 }
 
@@ -485,7 +520,7 @@ struct VertexProgramOutputProperties {
 
 using VertexProgramOutputPropertiesMap = std::map<SceGxmVertexProgramOutputs, VertexProgramOutputProperties>;
 
-static void create_output(ProgramState &state, CodeWriter &writer, ShaderVariables &params, const FeatureState &features, const SceGxmProgram &program, const Hints *hints) {
+static void create_output(ProgramState &state, CodeWriter &writer, ShaderVariables &params, const FeatureState &features, TranslationState &translation_state, const SceGxmProgram &program, const Hints *hints) {
     if (program.is_vertex()) {
         gxp::GxmVertexOutputTexCoordInfos coord_infos;
         SceGxmVertexProgramOutputs vertex_outputs = gxp::get_vertex_outputs(program, &coord_infos);
@@ -592,6 +627,9 @@ static void create_output(ProgramState &state, CodeWriter &writer, ShaderVariabl
         color_val_operand.num = 0;
         color_val_operand.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
         color_val_operand.type = std::get<0>(shader::get_parameter_type_store_and_name(program.get_fragment_output_type()));
+        // if the shader tries to write a INT32 or UINT32, it means the raw content
+        if (color_val_operand.type == DataType::INT32 || color_val_operand.type == DataType::UINT32)
+            color_val_operand.type = DataType::F32;
 
         // if the output component count is greater than the surface component count,
         // it means we must pack multiple components (with lower precision) into one of the surface component
@@ -601,42 +639,43 @@ static void create_output(ProgramState &state, CodeWriter &writer, ShaderVariabl
                 color_val_operand.type = DataType::F32;
         }
 
+        int reg_off = 0;
         if (!program.is_native_color() && vertex_varyings_ptr->output_param_type == 1) {
-            color_val_operand.num = vertex_varyings_ptr->fragment_output_start;
-        }
-
-        std::string result = params.load(color_val_operand, 0b1111, 0);
-        if (is_unsigned_integer_data_type(color_val_operand.type)) {
-            result = fmt::format("vec4(uvec4({})) / 255.0", result);
-        }
-
-        bool use_outs = true;
-
-        if (program.is_frag_color_used()) {
-            if (features.is_programmable_blending_need_to_bind_color_attachment()) {
-                writer.add_to_current_body(fmt::format("imageStore(f_colorAttachment, ivec2(gl_FragCoord.xy), {});", result));
-
-                if (features.preserve_f16_nan_as_u16) {
-                    color_val_operand.type = DataType::UINT16;
-                    result = params.load(color_val_operand, 0b1111, 0);
-
-                    writer.add_to_current_body(fmt::format("imageStore(f_colorAttachment_rawUI, ivec2(gl_FragCoord.xy), {});", result));
-                }
-
-                use_outs = false;
+            reg_off = vertex_varyings_ptr->fragment_output_start;
+            if (reg_off != 0) {
+                LOG_INFO("Non zero pa offset: {} at {}", reg_off, translation_state.hash.c_str());
             }
         }
 
-        if (use_outs) {
-            writer.add_declaration("layout (location = 0) out vec4 out_color;");
-            writer.add_to_current_body(fmt::format("out_color = {};", result));
+        std::string color;
+
+        color = params.load(color_val_operand, 0b1111, reg_off);
+
+        if (!is_float_data_type(color_val_operand.type))
+            color = params.convert_to_float(color, 4, color_val_operand.type, true);
+
+        bool use_outs = true;
+
+        if (program.is_frag_color_used() && features.should_use_shader_interlock()) {
+            writer.add_to_current_body(fmt::format("imageStore(f_colorAttachment, ivec2(gl_FragCoord.xy), {});", color));
+        
 
             if (features.preserve_f16_nan_as_u16) {
                 color_val_operand.type = DataType::UINT16;
-                result = params.load(color_val_operand, 0b1111, 0);
+                color = params.load(color_val_operand, 0b1111, reg_off);
+
+                writer.add_to_current_body(fmt::format("imageStore(f_colorAttachment_rawUI, ivec2(gl_FragCoord.xy), {});", color));
+            }
+        } else {
+            writer.add_declaration("layout (location = 0) out vec4 out_color;");
+            writer.add_to_current_body(fmt::format("out_color = {};", color));
+
+            if (features.preserve_f16_nan_as_u16) {
+                color_val_operand.type = DataType::UINT16;
+                color = params.load(color_val_operand, 0b1111, 0);
 
                 writer.add_declaration("layout (location = 1) out uvec4 out_color_ui;");
-                writer.add_to_current_body(fmt::format("out_color_ui = {};", result));
+                writer.add_to_current_body(fmt::format("out_color_ui = {};", color));
             }
         }
     }
@@ -754,6 +793,8 @@ static std::string convert_gxp_to_glsl_impl(const SceGxmProgram &program, const 
     std::stringstream disasm_dump;
     usse::disasm::disasm_storage = &disasm_dump;
 
+    translation_state.hash = shader_hash;
+
     usse::glsl::create_necessary_headers(code_writer, program, features, shader_hash);
     usse::glsl::create_parameters(program_state, code_writer, variables, features, translation_state, program, inputs, hints);
 
@@ -771,7 +812,7 @@ static std::string convert_gxp_to_glsl_impl(const SceGxmProgram &program, const 
 
     code_writer.set_active_body_type(usse::glsl::BODY_TYPE_POSTWORK);
 
-    usse::glsl::create_output(program_state, code_writer, variables, features, program, hints);
+    usse::glsl::create_output(program_state, code_writer, variables, features, translation_state, program, hints);
     usse::glsl::create_necessary_footers(code_writer, program, features);
 
     code_writer.set_active_body_type(usse::glsl::BODY_TYPE_MAIN);
